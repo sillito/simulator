@@ -1,6 +1,9 @@
+//
+// TODO
+// * Add additional distribution types, and make the distribution used 
+//   configurable
+//
 const http = require('http')
-
-require('timers')
 
 //
 // configure service using command line arguments, and these defaults
