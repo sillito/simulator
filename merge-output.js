@@ -24,7 +24,7 @@ process.argv.slice(2).forEach((file_name) => {
     })
 })
 
-console.log(header)
+console.log(header.join(','))
 
 rows.forEach((row, index) => {
     if (row.length > 1) {
