@@ -10,6 +10,7 @@
   "author": "",
   "license": "TODO",
   "dependencies": {
-    "minimist": "^1.2.0"
+    "minimist": "^1.2.0",
+    "request": "^2.88.0"
   }
 }
