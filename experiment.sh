@@ -16,7 +16,7 @@ echo [Saving experiment output to $DIR/]
 #
 echo [Starting services]
 node service.js --port 3000 --type serial --services http://127.0.0.1:3001 > $DIR/s0.csv &
-node service.js --port 3001 --type timed --mean 200 --std 50 --error_rate 0.1 > $DIR/s1.csv &
+node service.js --port 3001 --type timed --mean 200 --std 50 --failure_rate 0.1 > $DIR/s1.csv &
 
 sleep 2 # give services time to start up, before running the experiment
 
