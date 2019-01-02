@@ -27,6 +27,7 @@ var args = require('minimist')(process.argv.slice(2), {"default": {
     "name":"s1",
     "port":3000,
     "hostname":'127.0.0.1',
+    "log_level":3,
     "mean":200,
     "std":50,
     "failure_rate":0.01,
@@ -36,7 +37,8 @@ var args = require('minimist')(process.argv.slice(2), {"default": {
     "failure_response_size": 512,
     "services":[],
     "type":'timed',
-    "verbose":false
+    "max_tries":5, // global value for all dependencies, atm
+    "timeout":200  // global value for all dependencies, atm
 }})
 
 function usage() {
@@ -48,6 +50,7 @@ function usage() {
     console.error("\t--name <name>\ta name for this service name")
     console.error("\t--port <port to listen on>")
     console.error("\t--hostname <service hostname>")
+    console.error("\t--log_level [0...4]")
     console.error("\nPerformance distribution (200s)")
     console.error("\t--mean <mean>")
     console.error("\t--std <standard deviation>")
@@ -60,6 +63,8 @@ function usage() {
     console.error("\nServices dependencies")
     console.error("\t--services <list of urls>")
     console.error("\t--type timed|serial|concurrent")
+    console.error("\t--max_tries <number>")
+    console.error("\t--timeout <number in ms>")
 }
 
 // a running counter of the number of currently active requests
@@ -98,21 +103,19 @@ const server = http.createServer((req, res) => {
 
     var request_id = get_request_id(req)
     
+    req.on('aborted', () => {
+        log(DEBUG, `Request aborted ${Date.now()-start_time}ms (${wait_time}ms)`, request_id)
+    })
+    
     res.on('finish', () => {
         var actual_time = Date.now() - start_time
-        if (args.verbose) {
-            log([
-                log_entry("request-id", request_id),
-                log_entry("status", res.statusCode),
-                log_entry("start-cons", start_connections),
-                log_entry("end-cons", connections_count),
-                log_entry("sampled-ms", wait_time),
-                log_entry("service-ms", actual_time)
-            ])
-        }
-        
-        // log in CSV format a basic set of metrics
-        console.log([request_id, res.statusCode, actual_time].join(','))
+        log(DEBUG, `cons at start=${start_connections}, at end=${connections_count}`, request_id)
+        log(DEBUG, `sampled ms=${wait_time}, actual ms=${actual_time}`, request_id)
+
+        record_metrics(request_id, {
+            status:res.statusCode,
+            server_side_time: actual_time
+        })
         
         connections_count -= 1
     })
@@ -145,7 +148,7 @@ const server = http.createServer((req, res) => {
             call_services_concurrently(request_id, service_urls, res)
         }
         else {
-            console.error(`WARNING unknown service type ${args.type}`)
+            log(FATAL, `Unknown service type ${args.type}`)
         }
     }
 })
@@ -156,21 +159,64 @@ function call_service(request_id, service_url, cb) {
     // is complete.
     //
     var start_time = Date.now()
-    http.request(service_url, (response) => {
-        response.on('data', ()=>{})
-        response.on('end', ()=>{
-            if (args.verbose) {
-                log([
-                    log_entry("request-id", request_id),
-                    log_entry("remote-service", service_url),
-                    log_entry("status", response.statusCode),
-                    log_entry("time", Date.now()-start_time)
-                ])
-            }
-            
-            cb(response.statusCode)
+    make_request(service_url, (response, tries) => {
+        record_metrics(request_id, {
+            service:service_url, 
+            status:response.statusCode,
+            tries:tries,
+            client_side_time:Date.now()-start_time
         })
-    }).end()
+        
+        cb(response.statusCode)
+    })
+}
+
+function make_request(service_url, cb) {
+    //
+    // Call service, retrying in the event of an error upu to a maximum of args.max_tries
+    // attempts.
+    //
+    var attempts = 0
+    
+    var attempt = (e) => {
+        attempts += 1
+        
+        if (e) {
+            log(DEBUG, `Retry due to ${e.message} (${attempts} of ${args.max_tries})`)
+        }
+        
+        if (attempts <= args.max_tries) {
+            var seen_response = false // avoid retrying multiple times for same failure
+
+            let request = http.request(service_url, response => {
+                response.on('data', ()=>{})
+                response.on('end', () => {
+                    seen_response = true
+                    if (response.statusCode === 500) { // retry on error response
+                        attempt({message:'500 status code'})
+                    }
+                    else {
+                        cb(response, attempts)
+                    }
+                })
+            })
+
+            request.on('error', (e) => { // retry on any connection errors
+                if (!seen_response) attempt(e)
+            })
+            
+            request.setTimeout(args.timeout, () => { 
+                request.socket.destroy() // this will trigger an error event
+            })
+    
+            request.end()
+        }
+        else {
+            cb({statusCode: 500}, attempts) // TODO: what should we do when we hit max_tries?
+        }
+    }
+    
+    attempt()
 }
 
 //
@@ -239,17 +285,36 @@ function respond_500(response) {
     response.end(body)
 }
 
-//
+// 
 // logging facility (just logs to console, atm)
-//
-function log(messages) {
-    // messages.push(log_entry("port", args.port))
-    console.error(messages.join(','))
+// 
+
+const DEBUG = 4, INFO = 3, WARN = 2, ERROR = 1, FATAL = 0
+const LOG_LEVEL_NAMES = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"]
+
+function log(level, message, request_id) {
+    if (level <= args.log_level) {
+        if (request_id===undefined) {
+            console.error(`${LOG_LEVEL_NAMES[level]}: ${message}`)
+        }
+        else {
+            console.error(`${LOG_LEVEL_NAMES[level]} ${request_id}: ${message}`)
+        }
+    }
 }
 
-function log_entry(name, value, units) {
-    return `${name}=${value}${units||''}`
+function record_metrics(request_id, metrics) {
+    // var metrics_string = Object.keys(metrics).map((k) => {
+    //     return `${k}=${metrics[k]}`
+    // }).join(',')
+    // console.log(`request_id=${request_id},${metrics_string}`)
+    metrics['request_id'] = request_id
+    console.log(JSON.stringify(metrics))
 }
+//
+// function log_entry(name, value, units) {
+//     return `${name}=${value}${units||''}`
+// }
 
 //
 // functions for sampling from common distributions
@@ -295,10 +360,7 @@ if (require.main === module) {
     }
     
     server.listen(args.port, args.hostname, () => {
-        console.error(`Service running at http://${args.hostname}:${args.port}/`)
-        if (args.verbose) {
-            console.error("With args:")
-            console.error(args)
-        }
+        log(INFO, `Service running at http://${args.hostname}:${args.port}/`)
+        log(DEBUG, `With args ${JSON.stringify(args)}`)
     })
 }
