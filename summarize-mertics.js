@@ -24,6 +24,12 @@ var latency = {
     max:0
 }
 
+var args = require('minimist')(process.argv.slice(2), {"default": {
+    "trial":0,
+    "csv":false,
+    "header":false 
+}})
+
 readline.on('line', (line) => {
     let metrics = JSON.parse(line)
     
@@ -48,12 +54,21 @@ readline.on('line', (line) => {
 })
 
 readline.on('close', () => {
-    console.log('Requests:')
-    console.log(`    received = ${requests}`)
-    console.log(`    sent     = ${tries}`)
-    console.log(`    200s     = ${successes} (${successes/requests}%)`)
-    console.log('Latency:')
-    console.log(`    min      = ${latency.min}`)
-    console.log(`    max      = ${latency.max}`)
-    console.log(`    mean     = ${latency.total/requests}`)
+    if (args.csv) {
+        if (args.header) {
+            console.log('trial,requests received,requests sent,successes returned,min latency,max latency,mean latency')
+        }
+        console.log([args.trial,requests, tries, successes,latency.min,latency.max,latency.total/requests].join(','))
+    }
+    else {
+        console.log(`Results from trial ${args.trial}`)
+        console.log('Requests:')
+        console.log(`    received = ${requests}`)
+        console.log(`    sent     = ${tries}`)
+        console.log(`    200s     = ${successes} (${successes/requests*100}%)`)
+        console.log('Latency:')
+        console.log(`    min      = ${latency.min}`)
+        console.log(`    max      = ${latency.max}`)
+        console.log(`    mean     = ${latency.total/requests}`)
+    }
 })
