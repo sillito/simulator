@@ -69,6 +69,8 @@ function usage() {
 
 // a running counter of the number of currently active requests
 var connections_count = 0
+var fallback_count = 0
+
 
 //
 // Each request is assigned a request id (unless a request id is passed as part
@@ -96,7 +98,7 @@ function get_request_id(request) {
 // 
 const server = http.createServer((req, res) => {
     connections_count +=1
-    
+    fallback_count = 0
     var start_time = Date.now()
     var start_connections = connections_count
     var wait_time = 0
@@ -114,7 +116,8 @@ const server = http.createServer((req, res) => {
 
         record_metrics(request_id, {
             status:res.statusCode,
-            server_side_time: actual_time
+            server_side_time: actual_time,
+            fallback : fallback_count
         })
         
         connections_count -= 1
@@ -164,7 +167,8 @@ function call_service(request_id, service_url, cb) {
             service:service_url, 
             status:response.statusCode,
             tries:tries,
-            client_side_time:Date.now()-start_time
+            client_side_time:Date.now()-start_time,
+            fallback:fallback_count
         })
         
         cb(response.statusCode)
@@ -193,7 +197,9 @@ function make_request(service_url, cb) {
                 response.on('end', () => {
                     seen_response = true
                     if (response.statusCode === 500) { // retry on error response
-                        attempt({message:'500 status code'})
+                        fallback_count += 1
+                        response.statusCode = 200
+                        cb(response, attempts)//attempt({message:'500 status code'})
                     }
                     else {
                         cb(response, attempts)
@@ -212,6 +218,7 @@ function make_request(service_url, cb) {
             request.end()
         }
         else {
+            fallback_count += 1
             cb({statusCode: 500}, attempts) // TODO: what should we do when we hit max_tries?
         }
     }
@@ -234,9 +241,11 @@ function call_services_concurrently(request_id, service_urls, outgoing_response)
         call_service(request_id, service_url, (status) => {
             complete_count += 1            
             if (status === 500 && !completed) {
+                fallback_count += 1
                 // don't wait for other service calls, just return
                 completed = true
-                respond_500(outgoing_response)
+                //respond_500(outgoing_response)
+                respond_200(outgoing_response)
             }
             else if (complete_count === service_urls.length && !completed) {
                 // all service calls are complete
@@ -253,7 +262,9 @@ function call_services_serially(request_id, service_urls, outgoing_response) {
     if (service_url) {
         call_service(request_id, service_url, (status) => {
             if (status === 500) {
-                respond_500(outgoing_response) // recurssion base case 1
+                fallback_count += 1
+                //respond_500(outgoing_response) // recurssion base case 1
+                respond_200(outgoing_response) // call 200 if 500 and log
             } 
             else {
                 call_services_serially(request_id, service_urls, outgoing_response)
@@ -272,6 +283,7 @@ function call_services_serially(request_id, service_urls, outgoing_response) {
 function respond_200(response) {
     var body = Buffer.alloc(args.response_size)
     response.statusCode = 200
+
     response.setHeader('Content-Type', 'application/octet-stream')
     response.setHeader('Content-Length', body.byteLength)
     response.end(body)

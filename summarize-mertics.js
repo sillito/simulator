@@ -18,6 +18,7 @@ const readline = require('readline').createInterface({
 var tries = 0
 var requests = 0
 var successes = 0
+var fallbacks = 0
 var latency = {
     total:0,
     min:Number.MAX_VALUE,
@@ -46,6 +47,17 @@ readline.on('line', (line) => {
         if (metrics.status == 200) {
             successes += 1
         }
+        if (metrics.fallback)
+        {
+            if(metrics.fallback > 0)
+            {
+                fallbacks += 1
+            }
+        }
+        // if (metrics.status == 500) {
+        //     successes += 1
+        //     //fallbacks += 1
+        // }
     }
     else {
         // metrics line from calling a dependency
@@ -56,7 +68,7 @@ readline.on('line', (line) => {
 readline.on('close', () => {
     if (args.csv) {
         if (args.header) {
-            console.log('trial,requests received,requests sent,successes returned,min latency,max latency,mean latency')
+            console.log('trial,requests received,requests sent,successes returned, fallback, min latency,max latency,mean latency')
         }
         console.log([args.trial,requests, tries, successes,latency.min,latency.max,latency.total/requests].join(','))
     }
@@ -66,6 +78,7 @@ readline.on('close', () => {
         console.log(`    received = ${requests}`)
         console.log(`    sent     = ${tries}`)
         console.log(`    200s     = ${successes} (${successes/requests*100}%)`)
+        console.log(`    fallback = ${fallbacks} (${fallbacks/requests*100}%)`)
         console.log('Latency:')
         console.log(`    min      = ${latency.min}`)
         console.log(`    max      = ${latency.max}`)
