@@ -15,10 +15,10 @@ echo [Saving experiment output to $DIR/]
 # Start four services; the last three all call the first one 
 #
 echo [Starting services]
-node service.js --port 3000 --type timed --failure_rate 0.5 > $DIR/s0.metrics &
-node service.js --port 3001 --type serial --max_tries 1 --timeout 1000 --services http://127.0.0.1:3000 > $DIR/s1.metrics &
-node service.js --port 3002 --type serial --max_tries 5 --timeout 100 --services http://127.0.0.1:3000 > $DIR/s2.metrics &
-node service.js --port 3003 --type serial --max_tries 2 --timeout 300 --services http://127.0.0.1:3000 > $DIR/s3.metrics &
+node service.js --name Bork --port 3000 --type timed --failure_rate 0.5 > $DIR/s0.metrics &
+node service.js --name s1 --port 3001 --type serial --max_tries 1 --timeout 1000 --services http://127.0.0.1:3000 > $DIR/s1.metrics &
+node service.js --name s2 --port 3002 --type serial --max_tries 5 --timeout 100 --services http://127.0.0.1:3000 > $DIR/s2.metrics &
+node service.js --name s3 --port 3003 --type serial --max_tries 2 --timeout 300 --services http://127.0.0.1:3000 > $DIR/s3.metrics &
 
 sleep 2 # give services time to start up before running the experiment
 
