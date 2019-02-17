@@ -19,6 +19,7 @@
 //
 const http = require("http");
 const url = require("url");
+const seedrandom = require("seedrandom");
 
 //
 // configure service using command line arguments, and these defaults
@@ -39,9 +40,12 @@ var args = require("minimist")(process.argv.slice(2), {
     services: [],
     type: "timed",
     max_tries: 5, // global value for all dependencies, atm
-    timeout: 200 // global value for all dependencies, atm
+    timeout: 200, // global value for all dependencies, atm
+    seed: "secret"
   }
 });
+
+const rng = seedrandom(args.seed);
 
 function usage() {
   //
@@ -408,8 +412,8 @@ function standard_normalSample() {
   //
   var u = 0,
     v = 0;
-  while (u === 0) u = Math.random(); // converting [0,1) to (0,1)
-  while (v === 0) v = Math.random();
+  while (u === 0) u = rng(); // converting [0,1) to (0,1)
+  while (v === 0) v = rng();
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
@@ -422,7 +426,7 @@ function weightedCoinToss(weight) {
   // returns true with probabilty 'weight' (in the interval [0..1]) and
   // false with probabilty '1-weight'
   //
-  return Math.random() < weight;
+  return rng() < weight;
 }
 
 //
