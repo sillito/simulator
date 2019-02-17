@@ -171,13 +171,13 @@ function callService(requestId, serviceURL, cb) {
 
     cb(response.statusCode);
   });*/
-  log(INFO, `AAAAAAAa service: ${serviceURL}`, requestId);
+  //log(INFO, `AAAAAAAa service: ${serviceURL}`, requestId);
   makeRequestPromise(serviceURL, 0).then(({ response, attempt }) => {
-    log(
+    /*log(
       INFO,
       `XXXXXXXX status:${response.statusCode}, attempts: ${attempt}`,
       requestId
-    );
+    );*/
     record_metrics(requestId, {
       service: serviceURL,
       status: response.statusCode,
@@ -203,7 +203,7 @@ async function makeRequestPromise(serviceURL, attempt, error) {
         `Retry due to ${error.message} (${attempt} of ${args.max_tries})`
       );
     }
-    log(INFO, `Attempt ${attempt} of ${args.max_tries}`);
+    //log(INFO, `Attempt ${attempt} of ${args.max_tries}`);
 
     var seen_response = false; // avoid retrying multiple times for same failure
     let request = http.request(serviceURL, response => {
