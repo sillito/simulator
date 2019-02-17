@@ -95,7 +95,7 @@ function getRequestId(request) {
 // TODO: add support for reading the body of a POST request, before taking
 // action on the request
 //
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   connections_count += 1;
 
   const startTime = Date.now();
@@ -146,51 +146,34 @@ const server = http.createServer((req, res) => {
     });
 
     if (args.type === "serial") {
-      callServicesSerially(res, requestId, serviceURLs);
+      await callServicesSerially(res, requestId, serviceURLs);
     } else if (args.type === "concurrent") {
-      callServicesConcurrently(res, requestId, serviceURLs);
+      await callServicesConcurrently(res, requestId, serviceURLs);
     } else {
       log(FATAL, `Unknown service type ${args.type}`);
     }
   }
 });
 
-function callService(requestId, serviceURL, cb) {
+async function callService(requestId, serviceURL) {
   //
   // Call serviceURL and call cb with the status code when the service call
   // is complete.
   //
   var start_time = Date.now();
-  /*make_request(serviceURL, (response, tries) => {
-    record_metrics(requestId, {
-      service: serviceURL,
-      status: response.statusCode,
-      tries: tries,
-      client_side_time: Date.now() - start_time
-    });
-
-    cb(response.statusCode);
-  });*/
-  //log(INFO, `AAAAAAAa service: ${serviceURL}`, requestId);
-  makeRequestPromise(serviceURL, 0).then(({ response, attempt }) => {
-    /*log(
-      INFO,
-      `XXXXXXXX status:${response.statusCode}, attempts: ${attempt}`,
-      requestId
-    );*/
-    record_metrics(requestId, {
-      service: serviceURL,
-      status: response.statusCode,
-      tries: attempt,
-      client_side_time: Date.now() - start_time
-    });
-
-    cb(response.statusCode);
+  const { response, attempt } = await attemptRequestToService(serviceURL, 0);
+  record_metrics(requestId, {
+    service: serviceURL,
+    status: response.statusCode,
+    tries: attempt,
+    client_side_time: Date.now() - start_time
   });
+
+  return response.statusCode;
 }
 
-async function makeRequestPromise(serviceURL, attempt, error) {
-  return new Promise((resolve, reject) => {
+async function attemptRequestToService(serviceURL, attempt, error) {
+  return new Promise(resolve => {
     attempt++;
 
     if (attempt > args.max_tries) {
@@ -213,7 +196,7 @@ async function makeRequestPromise(serviceURL, attempt, error) {
         if (response.statusCode === 500) {
           // retry on error response
           resolve(
-            makeRequestPromise(serviceURL, attempt, {
+            attemptRequestToService(serviceURL, attempt, {
               message: "500 status code"
             })
           );
@@ -226,7 +209,7 @@ async function makeRequestPromise(serviceURL, attempt, error) {
     request.on("error", e => {
       // retry on any connection errors
       if (!seen_response) {
-        resolve(makeRequestPromise(serviceURL, attempt, e));
+        resolve(attemptRequestToService(serviceURL, attempt, e));
       }
     });
 
@@ -239,57 +222,6 @@ async function makeRequestPromise(serviceURL, attempt, error) {
   });
 }
 
-function make_request(service_url, cb) {
-  //
-  // Call service, retrying in the event of an error upu to a maximum of args.max_tries
-  // attempts.
-  //
-  var attempts = 0;
-
-  var attempt = e => {
-    attempts += 1;
-
-    if (e) {
-      log(
-        DEBUG,
-        `Retry due to ${e.message} (${attempts} of ${args.max_tries})`
-      );
-    }
-
-    if (attempts <= args.max_tries) {
-      var seen_response = false; // avoid retrying multiple times for same failure
-
-      let request = http.request(service_url, response => {
-        response.on("data", () => {});
-        response.on("end", () => {
-          seen_response = true;
-          if (response.statusCode === 500) {
-            // retry on error response
-            attempt({ message: "500 status code" });
-          } else {
-            cb(response, attempts);
-          }
-        });
-      });
-
-      request.on("error", e => {
-        // retry on any connection errors
-        if (!seen_response) attempt(e);
-      });
-
-      request.setTimeout(args.timeout, () => {
-        request.socket.destroy(); // this will trigger an error event
-      });
-
-      request.end();
-    } else {
-      cb({ statusCode: 500 }, attempts); // TODO: what should we do when we hit max_tries?
-    }
-  };
-
-  attempt();
-}
-
 //
 // The following two functions call each service in a list of service urls. The
 // first calls all services concurrently, the second calls them serially. In
@@ -297,32 +229,34 @@ function make_request(service_url, cb) {
 // respond with a status code of 500, without waiting for all service calls.
 //
 
-function callServicesConcurrently(res, requestId, serviceURLs) {
+async function callServicesConcurrently(res, requestId, serviceURLs) {
   let responsesPending = serviceURLs.length; // TODO might be worth logging this value on 500
   let completed = false; // make sure we don't respond multiple times
 
-  for (const serviceURL of serviceURLs) {
-    callService(requestId, serviceURL, status => {
+  return new Promise(resolve => {
+    serviceURLs.forEach(async serviceURL => {
+      const status = await callService(requestId, serviceURL);
+
       // if we have already responded, don't respond again.
       if (completed) return;
 
       // immediately return 500 error, don't allow future services calls to respond
       if (status === 500) {
         completed = true;
-        return respond(res, 500);
+        return resolve(respond(res, 500));
       }
 
       // after we have processed all, respond 200
       responsesPending--;
       if (responsesPending === 0) {
         // all service calls are complete
-        return respond(res, 200);
+        return resolve(respond(res, 200));
       }
     });
-  }
+  });
 }
 
-function callServicesSerially(res, requestId, serviceURLs) {
+async function callServicesSerially(res, requestId, serviceURLs) {
   var serviceURL = serviceURLs.shift();
 
   // recurse until out of URLs to process
@@ -330,13 +264,12 @@ function callServicesSerially(res, requestId, serviceURLs) {
     return respond(res, 200);
   }
 
-  callService(requestId, serviceURL, status => {
-    if (status === 500) {
-      return respond(res, 500);
-    }
+  const status = await callService(requestId, serviceURL);
+  if (status === 500) {
+    return respond(res, 500);
+  }
 
-    callServicesSerially(res, requestId, serviceURLs);
-  });
+  return callServicesSerially(res, requestId, serviceURLs);
 }
 
 //
