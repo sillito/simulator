@@ -130,8 +130,9 @@ const server = http.createServer((req, res) => {
     
     if (args.type === 'timed') {
         if (weighted_coin_toss(args.failure_rate)) {
+            fallback_count += 1 
             wait_time = parseInt(normal_sample(args.failure_mean, args.failure_std))
-            setTimeout(() => {respond_500(res)}, wait_time)
+            setTimeout(() => {respond_200(res)}, wait_time)
         }
         else {
             wait_time = parseInt(normal_sample(args.mean, args.std))
