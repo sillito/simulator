@@ -11,6 +11,7 @@ const readline = require('readline').createInterface({
   output: process.stdout,
   terminal: false
 })
+const cTable = require('console.table');
 
 //
 // Metrics to report
@@ -61,14 +62,15 @@ readline.on('close', () => {
         console.log([args.trial,requests, tries, successes,latency.min,latency.max,latency.total/requests].join(','))
     }
     else {
-        console.log(`Results from trial ${args.trial}`)
-        console.log('Requests:')
-        console.log(`    received = ${requests}`)
-        console.log(`    sent     = ${tries}`)
-        console.log(`    200s     = ${successes} (${successes/requests*100}%)`)
-        console.log('Latency:')
-        console.log(`    min      = ${latency.min}`)
-        console.log(`    max      = ${latency.max}`)
-        console.log(`    mean     = ${latency.total/requests}`)
+        const table = cTable.getTable([{
+            trial: args.trial,
+            recieved: requests,
+            sent: tries,
+            returned_200s: successes,
+            min_latency: latency.min,
+            max_latency: latency.max,
+            mean_latency: latency.total/requests
+        }, ]);
+        console.log(table);
     }
 })
