@@ -24,22 +24,22 @@ const url = require('url')
 // configure service using command line arguments, and these defaults
 // 
 var args = require('minimist')(process.argv.slice(2), {"default": {
-    "name":"s1",
-    "port":3000,
-    "hostname":'127.0.0.1',
-    "log_level":3,
-    "mean":200,
-    "std":50,
-    "failure_rate":0.01,
-    "failure_mean":100,
-    "failure_std":25,
-    "response_size": 1024 * 1024,
-    "failure_response_size": 512,
-    "services":[],
-    "type":'timed',
-    "max_tries":5, // global value for all dependencies, atm
-    "timeout":200  // global value for all dependencies, atm
-}})
+        "name":"s1",
+        "port":3000,
+        "hostname":'127.0.0.1',
+        "log_level":3,
+        "mean":200,
+        "std":50,
+        "failure_rate":0.01,
+        "failure_mean":100,
+        "failure_std":25,
+        "response_size": 1024 * 1024,
+        "failure_response_size": 512,
+        "services":[],
+        "type":'timed',
+        "max_tries":5, // global value for all dependencies, atm
+        "timeout":200  // global value for all dependencies, atm
+    }})
 
 function usage() {
     //
@@ -69,8 +69,6 @@ function usage() {
 
 // a running counter of the number of currently active requests
 var connections_count = 0
-var fallback_count = 0
-
 
 //
 // Each request is assigned a request id (unless a request id is passed as part
@@ -90,48 +88,54 @@ function get_request_id(request) {
 }
 
 //
-// Listen for requests, and respond with a status code, and response time 
+// Listen for requests, and respond with a status code, and response time
 // determined by a set of rules intended to simulate a real service
 //
 // TODO: add support for reading the body of a POST request, before taking
 // action on the request
-// 
+//
 const server = http.createServer((req, res) => {
     connections_count +=1
-    fallback_count = 0
+
     var start_time = Date.now()
     var start_connections = connections_count
     var wait_time = 0
 
     var request_id = get_request_id(req)
-    
+
     req.on('aborted', () => {
         log(DEBUG, `Request aborted ${Date.now()-start_time}ms (${wait_time}ms)`, request_id)
     })
-    
+
     res.on('finish', () => {
+        var fallback = false
         var actual_time = Date.now() - start_time
         log(DEBUG, `cons at start=${start_connections}, at end=${connections_count}`, request_id)
         log(DEBUG, `sampled ms=${wait_time}, actual ms=${actual_time}`, request_id)
-
+        if(res.statusCode === 500)
+        {
+            fallback = true
+        }
         record_metrics(request_id, {
-            status:res.statusCode,
+            status:200,
+            //status:res.statusCode,
             server_side_time: actual_time,
-            fallback : fallback_count
+            fallback : fallback
         })
-        
+
         connections_count -= 1
     })
-    
+
     //
-    // Handle this request based on the type flag we were configured 
+    // Handle this request based on the type flag we were configured
     // with at start up
     //
-    
+
     if (args.type === 'timed') {
         if (weighted_coin_toss(args.failure_rate)) {
-            fallback_count += 1 
+            //fallback = true
             wait_time = parseInt(normal_sample(args.failure_mean, args.failure_std))
+            //setTimeout(() => {respond_500(res)}, wait_time)
             setTimeout(() => {respond_200(res)}, wait_time)
         }
         else {
@@ -144,7 +148,7 @@ const server = http.createServer((req, res) => {
             // TODO probably should use url module to construct this
             return `${service_url}/?request_id=${request_id}`
         })
-        
+
         if (args.type === 'serial') {
             call_services_serially(request_id, service_urls, res)
         }
@@ -163,15 +167,21 @@ function call_service(request_id, service_url, cb) {
     // is complete.
     //
     var start_time = Date.now()
+
     make_request(service_url, (response, tries) => {
+        var fallback = false
+        if(response.statusCode === 500) {
+            fallback = true
+        }
         record_metrics(request_id, {
-            service:service_url, 
-            status:response.statusCode,
+            service:service_url,
+            status:200,
+            //status:response.statusCode,
             tries:tries,
             client_side_time:Date.now()-start_time,
-            fallback:fallback_count
+            fallback: fallback
         })
-        
+
         cb(response.statusCode)
     })
 }
@@ -182,14 +192,14 @@ function make_request(service_url, cb) {
     // attempts.
     //
     var attempts = 0
-    
+
     var attempt = (e) => {
         attempts += 1
-        
+
         if (e) {
             log(DEBUG, `Retry due to ${e.message} (${attempts} of ${args.max_tries})`)
         }
-        
+
         if (attempts <= args.max_tries) {
             var seen_response = false // avoid retrying multiple times for same failure
 
@@ -198,9 +208,7 @@ function make_request(service_url, cb) {
                 response.on('end', () => {
                     seen_response = true
                     if (response.statusCode === 500) { // retry on error response
-                        fallback_count += 1
-                        response.statusCode = 200
-                        cb(response, attempts)//attempt({message:'500 status code'})
+                        attempt({message:'500 status code'})
                     }
                     else {
                         cb(response, attempts)
@@ -211,42 +219,39 @@ function make_request(service_url, cb) {
             request.on('error', (e) => { // retry on any connection errors
                 if (!seen_response) attempt(e)
             })
-            
-            request.setTimeout(args.timeout, () => { 
+
+            request.setTimeout(args.timeout, () => {
                 request.socket.destroy() // this will trigger an error event
             })
-    
+
             request.end()
         }
         else {
-            fallback_count += 1
             cb({statusCode: 500}, attempts) // TODO: what should we do when we hit max_tries?
         }
     }
-    
+
     attempt()
 }
 
 //
 // The following two functions call each service in a list of service urls. The
-// first calls all services concurrently, the second calls them serially. In 
-// either case, if one of the services responds with a status code of 500, we 
+// first calls all services concurrently, the second calls them serially. In
+// either case, if one of the services responds with a status code of 500, we
 // respond with a status code of 500, without waiting for all service calls.
 //
 
 function call_services_concurrently(request_id, service_urls, outgoing_response) {
     var complete_count = 0 // TODO might be worth logging this value on 500
     var completed = false // make sure we don't respond multiple times
-    
+
     for (let service_url of service_urls) {
         call_service(request_id, service_url, (status) => {
-            complete_count += 1            
+            complete_count += 1
             if (status === 500 && !completed) {
-                fallback_count += 1
                 // don't wait for other service calls, just return
                 completed = true
-                //respond_500(outgoing_response)
-                respond_200(outgoing_response)
+                respond_500(outgoing_response)
             }
             else if (complete_count === service_urls.length && !completed) {
                 // all service calls are complete
@@ -259,19 +264,17 @@ function call_services_concurrently(request_id, service_urls, outgoing_response)
 
 function call_services_serially(request_id, service_urls, outgoing_response) {
     var service_url = service_urls.shift()
-    
+
     if (service_url) {
         call_service(request_id, service_url, (status) => {
             if (status === 500) {
-                fallback_count += 1
-                //respond_500(outgoing_response) // recurssion base case 1
-                respond_200(outgoing_response) // call 200 if 500 and log
-            } 
+                respond_500(outgoing_response) // recurssion base case 1
+            }
             else {
                 call_services_serially(request_id, service_urls, outgoing_response)
             }
         })
-    } 
+    }
     else {
         respond_200(outgoing_response) // recurssion base case 2
     }
@@ -279,12 +282,11 @@ function call_services_serially(request_id, service_urls, outgoing_response) {
 
 //
 // This service always responds in one of two ways: 200 or 500
-// 
+//
 
 function respond_200(response) {
     var body = Buffer.alloc(args.response_size)
     response.statusCode = 200
-
     response.setHeader('Content-Type', 'application/octet-stream')
     response.setHeader('Content-Length', body.byteLength)
     response.end(body)
@@ -298,9 +300,9 @@ function respond_500(response) {
     response.end(body)
 }
 
-// 
+//
 // logging facility (just logs to console, atm)
-// 
+//
 
 const DEBUG = 4, INFO = 3, WARN = 2, ERROR = 1, FATAL = 0
 const LOG_LEVEL_NAMES = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"]
@@ -321,6 +323,7 @@ function record_metrics(request_id, metrics) {
     //     return `${k}=${metrics[k]}`
     // }).join(',')
     // console.log(`request_id=${request_id},${metrics_string}`)
+
     metrics['request_id'] = request_id
     console.log(JSON.stringify(metrics))
 }
@@ -334,12 +337,12 @@ function record_metrics(request_id, metrics) {
 //
 
 function normal_sample(mean, std) {
-	return standard_normal_sample() * std + mean
+    return standard_normal_sample() * std + mean
 }
 
 function standard_normal_sample() {
     //
-    // Math.random() is a uniform distribution, we use the Box-Muller 
+    // Math.random() is a uniform distribution, we use the Box-Muller
     // transform to get a normal distribution:
     // https://en.wikipedia.org/wiki/Box–Muller_transform
     // https://stackoverflow.com/questions/25582882
@@ -371,7 +374,7 @@ if (require.main === module) {
         usage()
         process.exit(1)
     }
-    
+
     server.listen(args.port, args.hostname, () => {
         log(INFO, `Service running at http://${args.hostname}:${args.port}/`)
         log(DEBUG, `With args ${JSON.stringify(args)}`)

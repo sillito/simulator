@@ -54,10 +54,6 @@ readline.on('line', (line) => {
                 fallbacks += 1
             }
         }
-        // if (metrics.status == 500) {
-        //     successes += 1
-        //     //fallbacks += 1
-        // }
     }
     else {
         // metrics line from calling a dependency
