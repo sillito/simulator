@@ -34,9 +34,9 @@ ab -l -n 100 -c 20 -e $DIR/ab.csv http://127.0.0.1:3003/ > $DIR/ab3.output
 # convert the metrics logs to csv files
 #
 echo [Processing experiment logs]
-node summarize-mertics.js --trial 1 --csv --header < $DIR/s1.metrics 
-node summarize-mertics.js --trial 2 --csv < $DIR/s2.metrics 
-node summarize-mertics.js --trial 3 --csv < $DIR/s3.metrics 
+node summarize-mertics.js --trial 1 < $DIR/s1.metrics 
+node summarize-mertics.js --trial 2 < $DIR/s2.metrics 
+node summarize-mertics.js --trial 3 < $DIR/s3.metrics 
 
 #
 # clean up all of the child processes started by this script
