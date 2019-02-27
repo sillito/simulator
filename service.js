@@ -72,6 +72,7 @@ function usage() {
   console.error("\t--type timed|serial|concurrent");
   console.error("\t--max_tries <number>");
   console.error("\t--timeout <number in ms>");
+  console.error("\t--cache_hit_rate [0..1]");
 }
 
 // a running counter of the number of currently active requests
@@ -193,7 +194,7 @@ async function callService(requestId, serviceURL) {
 async function attemptRequestToService(serviceURL, attempt = 0, error = null) {
   attempt++;
   if (attempt > args.max_tries) {
-    return { response: { statusCode: 500 }, attempt }; // TODO: what should we do when we hit max_tries?
+    return { response: { statusCode: 500 }, attempt: args.max_tries }; // TODO: what should we do when we hit max_tries?
   }
 
   if (error) {
