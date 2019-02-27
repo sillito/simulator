@@ -168,8 +168,8 @@ async function callService(requestId, serviceURL) {
   // is complete.
   //
   var startTime = Date.now();
-  if(weightedCoinToss(args.cache_hit_rate)){
-    record_metrics(requestId, {
+  if (weightedCoinToss(args.cache_hit_rate)) {
+    recordMetrics(requestId, {
       service: serviceURL,
       status: 200,
       tries: 0,
@@ -225,11 +225,8 @@ async function attemptRequestToService(serviceURL, attempt = 0, error = null) {
       resolve(attemptRequestToService(serviceURL, attempt, e));
     });
 
-    // TODO: Verify setting a timeout without defining a function. If it auto-triggers socket, channel destruction
-    request.setTimeout(args.timeout, () => {
-      request.socket.destroy(); // this will trigger an error event
-      reject("Request Timeout");
-    });
+    // setting a timeout also implictly destroys socket
+    request.setTimeout(args.timeout);
 
     request.end();
   });
@@ -323,7 +320,7 @@ function log(level, message, requestId = "") {
   );
 }
 
-function recordMetrics(requestId, metrics) {
+function recordMetrics(metrics) {
   console.log(JSON.stringify(metrics));
 }
 
