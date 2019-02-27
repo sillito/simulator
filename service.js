@@ -24,7 +24,7 @@ const seedrandom = require("seedrandom");
 //
 // configure service using command line arguments, and these defaults
 //
-var args = require("minimist")(process.argv.slice(2), {
+const args = require("minimist")(process.argv.slice(2), {
   default: {
     name: "s1",
     port: 3000,
@@ -74,7 +74,7 @@ function usage() {
 }
 
 // a running counter of the number of currently active requests
-var connections_count = 0;
+let connectionsCount = 0;
 
 //
 // Each request is assigned a request id (unless a request id is passed as part
@@ -96,10 +96,10 @@ function getRequestId(request) {
 // action on the request
 //
 const server = http.createServer(async (req, res) => {
-  connections_count += 1;
+  connectionsCount++;
 
   const startTime = Date.now();
-  const startConnections = connections_count;
+  const startConnections = connectionsCount;
   let waitTime = 0;
 
   const requestId = getRequestId(req);
@@ -113,17 +113,18 @@ const server = http.createServer(async (req, res) => {
     const elapsedTime = Date.now() - startTime;
     log(
       DEBUG,
-      `cons at start=${startConnections}, at end=${connections_count}`,
+      `cons at start=${startConnections}, at end=${connectionsCount}`,
       requestId
     );
     log(DEBUG, `sampled ms=${waitTime}, actual ms=${elapsedTime}`, requestId);
 
-    record_metrics(requestId, {
+    recordMetrics({
+      requestId,
       status: res.statusCode,
-      server_side_time: elapsedTime
+      serverSideTime: elapsedTime
     });
 
-    connections_count -= 1;
+    connectionsCount -= 1;
   });
 
   //
@@ -140,17 +141,22 @@ const server = http.createServer(async (req, res) => {
       setTimeout(respond, waitTime, res, 200);
     }
   } else {
-    var serviceURLs = args.services.split(",").map(host => {
-      // TODO probably should use url module to construct this
-      return `${host}/?request_id=${requestId}`;
-    });
+    // TODO probably should use url module to construct this
+    const serviceURLs = args.services
+      .split(",")
+      .map(host => `${host}/?request_id=${requestId}`);
 
+    let status;
     if (args.type === "serial") {
-      await callServicesSerially(res, requestId, serviceURLs);
+      status = await callServicesSerially(requestId, serviceURLs);
     } else if (args.type === "concurrent") {
-      await callServicesConcurrently(res, requestId, serviceURLs);
+      status = await callServicesConcurrently(requestId, serviceURLs);
     } else {
       log(FATAL, `Unknown service type ${args.type}`);
+    }
+
+    if (status) {
+      respond(res, status);
     }
   }
 });
@@ -160,39 +166,36 @@ async function callService(requestId, serviceURL) {
   // Call serviceURL and call cb with the status code when the service call
   // is complete.
   //
-  var start_time = Date.now();
-  const { response, attempt } = await attemptRequestToService(serviceURL, 0);
-  record_metrics(requestId, {
+  var startTime = Date.now();
+  const { response, attempt } = await attemptRequestToService(serviceURL);
+  recordMetrics({
+    requestId,
     service: serviceURL,
     status: response.statusCode,
     tries: attempt,
-    client_side_time: Date.now() - start_time
+    clientSideTime: Date.now() - startTime
   });
 
   return response.statusCode;
 }
 
-async function attemptRequestToService(serviceURL, attempt, error) {
-  return new Promise(resolve => {
-    attempt++;
+async function attemptRequestToService(serviceURL, attempt = 0, error = null) {
+  attempt++;
+  if (attempt > args.max_tries) {
+    return { response: { statusCode: 500 }, attempt }; // TODO: what should we do when we hit max_tries?
+  }
 
-    if (attempt > args.max_tries) {
-      return resolve({ response: { statusCode: 500 }, attempt }); // TODO: what should we do when we hit max_tries?
-    }
+  if (error) {
+    log(
+      DEBUG,
+      `Retry due to ${error.message} (${attempt} of ${args.max_tries})`
+    );
+  }
 
-    if (error) {
-      log(
-        DEBUG,
-        `Retry due to ${error.message} (${attempt} of ${args.max_tries})`
-      );
-    }
-    //log(INFO, `Attempt ${attempt} of ${args.max_tries}`);
-
-    var seen_response = false; // avoid retrying multiple times for same failure
+  return new Promise((resolve, reject) => {
     let request = http.request(serviceURL, response => {
       response.on("data", () => {});
       response.on("end", () => {
-        seen_response = true;
         if (response.statusCode === 500) {
           // retry on error response
           resolve(
@@ -208,14 +211,13 @@ async function attemptRequestToService(serviceURL, attempt, error) {
 
     request.on("error", e => {
       // retry on any connection errors
-      if (!seen_response) {
-        resolve(attemptRequestToService(serviceURL, attempt, e));
-      }
+      resolve(attemptRequestToService(serviceURL, attempt, e));
     });
 
     // TODO: Verify setting a timeout without defining a function. If it auto-triggers socket, channel destruction
     request.setTimeout(args.timeout, () => {
       request.socket.destroy(); // this will trigger an error event
+      reject("Request Timeout");
     });
 
     request.end();
@@ -229,47 +231,42 @@ async function attemptRequestToService(serviceURL, attempt, error) {
 // respond with a status code of 500, without waiting for all service calls.
 //
 
-async function callServicesConcurrently(res, requestId, serviceURLs) {
+async function callServicesConcurrently(requestId, serviceURLs) {
   let responsesPending = serviceURLs.length; // TODO might be worth logging this value on 500
-  let completed = false; // make sure we don't respond multiple times
 
   return new Promise(resolve => {
     serviceURLs.forEach(async serviceURL => {
       const status = await callService(requestId, serviceURL);
 
-      // if we have already responded, don't respond again.
-      if (completed) return;
-
       // immediately return 500 error, don't allow future services calls to respond
       if (status === 500) {
-        completed = true;
-        return resolve(respond(res, 500));
+        return resolve(status);
       }
 
       // after we have processed all, respond 200
       responsesPending--;
       if (responsesPending === 0) {
         // all service calls are complete
-        return resolve(respond(res, 200));
+        return resolve(status);
       }
     });
   });
 }
 
-async function callServicesSerially(res, requestId, serviceURLs) {
+async function callServicesSerially(requestId, serviceURLs) {
   var serviceURL = serviceURLs.shift();
 
   // recurse until out of URLs to process
   if (!serviceURL) {
-    return respond(res, 200);
+    return 200;
   }
 
   const status = await callService(requestId, serviceURL);
   if (status === 500) {
-    return respond(res, 500);
+    return status;
   }
 
-  return callServicesSerially(res, requestId, serviceURLs);
+  return callServicesSerially(requestId, serviceURLs);
 }
 
 //
@@ -315,28 +312,19 @@ function log(level, message, requestId = "") {
   );
 }
 
-function record_metrics(requestId, metrics) {
-  // var metrics_string = Object.keys(metrics).map((k) => {
-  //     return `${k}=${metrics[k]}`
-  // }).join(',')
-  // console.log(`request_id=${request_id},${metrics_string}`)
-  metrics["request_id"] = requestId;
+function recordMetrics(requestId, metrics) {
   console.log(JSON.stringify(metrics));
 }
-//
-// function log_entry(name, value, units) {
-//     return `${name}=${value}${units||''}`
-// }
 
 //
 // functions for sampling from common distributions
 //
 
 function normalSample(mean, std) {
-  return standard_normalSample() * std + mean;
+  return standardNormalSample() * std + mean;
 }
 
-function standard_normalSample() {
+function standardNormalSample() {
   //
   // Math.random() is a uniform distribution, we use the Box-Muller
   // transform to get a normal distribution:

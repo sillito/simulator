@@ -33,15 +33,15 @@ var args = require('minimist')(process.argv.slice(2), {"default": {
 readline.on('line', (line) => {
     let metrics = JSON.parse(line)
     
-    if (metrics.server_side_time) {
+    if (metrics.serverSideTime) {
         // metrics line about the total service time
         requests += 1
-        latency.total += metrics.server_side_time
-        if (metrics.server_side_time < latency.min) {
-            latency.min = metrics.server_side_time
+        latency.total += metrics.serverSideTime
+        if (metrics.serverSideTime < latency.min) {
+            latency.min = metrics.serverSideTime
         }
-        if (metrics.server_side_time > latency.max) {
-            latency.max = metrics.server_side_time
+        if (metrics.serverSideTime > latency.max) {
+            latency.max = metrics.serverSideTime
         }
         if (metrics.status == 200) {
             successes += 1
