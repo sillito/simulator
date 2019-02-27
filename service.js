@@ -37,6 +37,7 @@ var args = require("minimist")(process.argv.slice(2), {
     failure_std: 25,
     response_size: 1024 * 1024,
     failure_response_size: 512,
+    cache_hit_rate: 0.5,
     services: [],
     type: "timed",
     max_tries: 5, // global value for all dependencies, atm
@@ -161,6 +162,20 @@ async function callService(requestId, serviceURL) {
   // is complete.
   //
   var start_time = Date.now();
+
+
+  if(weightedCoinToss(args.cache_hit_rate)){
+    record_metrics(requestId, {
+      service: serviceURL,
+      status: 200,
+      tries: 0,
+      cache: true,
+      client_side_time: Date.now() - start_time
+    });
+    return 200;
+  }
+
+
   const { response, attempt } = await attemptRequestToService(serviceURL, 0);
   record_metrics(requestId, {
     service: serviceURL,

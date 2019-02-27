@@ -49,7 +49,7 @@ readline.on('line', (line) => {
     }
     else {
         // metrics line from calling a dependency
-        tries += metrics.tries
+        tries += metrics.tries || 0
     }
 })
 
