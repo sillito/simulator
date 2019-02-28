@@ -49,10 +49,8 @@ readline.on('line', (line) => {
         }
         if (metrics.fallback)
         {
-            if(metrics.fallback > 0)
-            {
+            if(metrics.fallback === true)
                 fallbacks += 1
-            }
         }
     }
     else {

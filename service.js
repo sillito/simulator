@@ -115,12 +115,13 @@ const server = http.createServer((req, res) => {
         if(res.statusCode === 500)
         {
             fallback = true
+            res.statusCode = 200
         }
         record_metrics(request_id, {
-            status:200,
-            //status:res.statusCode,
+            //status:200,
+            status:res.statusCode,
             server_side_time: actual_time,
-            fallback : fallback
+            fallback: fallback
         })
 
         connections_count -= 1
@@ -172,11 +173,12 @@ function call_service(request_id, service_url, cb) {
         var fallback = false
         if(response.statusCode === 500) {
             fallback = true
+            response.statusCode = 200
         }
         record_metrics(request_id, {
             service:service_url,
-            status:200,
-            //status:response.statusCode,
+            //status:200,
+            status:response.statusCode,
             tries:tries,
             client_side_time:Date.now()-start_time,
             fallback: fallback
