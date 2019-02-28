@@ -19,6 +19,7 @@ const cTable = require("console.table");
 var tries = 0;
 var requests = 0;
 var successes = 0;
+var fallbacks = 0;
 var latency = {
   total: 0,
   min: Number.MAX_VALUE,
@@ -49,6 +50,9 @@ readline.on("line", line => {
     if (metrics.status == 200) {
       successes += 1;
     }
+    if (metrics.fallback) {
+      fallbacks++;
+    }
   } else {
     // metrics line from calling a dependency
     tries += metrics.tries || 0;
@@ -59,7 +63,7 @@ readline.on("close", () => {
   if (args.csv) {
     if (args.header) {
       console.log(
-        "trial,requests received,requests sent,successes returned,min latency,max latency,mean latency"
+        "trial,requests received,requests sent,successes returned,fallback,min latency,max latency,mean latency"
       );
     }
     console.log(
@@ -79,7 +83,8 @@ readline.on("close", () => {
         trial: args.trial,
         "Requests Recieved": requests,
         "Requests Sent (tries)": tries,
-        "Responses (200)": successes,
+        "Responses (200)": `${successes} (${(successes / requests) * 100}%)`,
+        Fallbacks: `${fallbacks} (${(fallbacks / requests) * 100}%)`,
         "Latency (min)": latency.min,
         "Latency (max)": latency.max,
         "Latency (mean)": latency.total / requests

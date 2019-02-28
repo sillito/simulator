@@ -120,11 +120,22 @@ const server = http.createServer(async (req, res) => {
     );
     log(DEBUG, `sampled ms=${waitTime}, actual ms=${elapsedTime}`, requestId);
 
-    recordMetrics({
-      requestId,
-      status: res.statusCode,
-      serverSideTime: elapsedTime
-    });
+    let fallback = false;
+    if (res.statusCode == 500) {
+      res.statusCode = 200;
+      fallback = true;
+      console.error("WWWWWWWW");
+    }
+
+    recordMetrics(
+      {
+        requestId,
+        status: res.statusCode,
+        serverSideTime: elapsedTime,
+        fallback
+      },
+      fallback
+    );
 
     connectionsCount -= 1;
   });
@@ -180,12 +191,21 @@ async function callService(requestId, serviceURL) {
     return 200;
   }
   const { response, attempt } = await attemptRequestToService(serviceURL);
+
+  let fallback = false;
+  if (response.statusCode == 500) {
+    response.statusCode = 200;
+    fallback = true;
+    console.error("XXXXXXXXXXXXXXXXXXX");
+  }
+
   recordMetrics({
     requestId,
     service: serviceURL,
     status: response.statusCode,
     tries: attempt,
-    clientSideTime: Date.now() - startTime
+    clientSideTime: Date.now() - startTime,
+    fallback
   });
 
   return response.statusCode;
@@ -321,8 +341,10 @@ function log(level, message, requestId = "") {
   );
 }
 
-function recordMetrics(metrics) {
+function recordMetrics(metrics, shouldDebugFallback = false) {
   console.log(JSON.stringify(metrics));
+  if (shouldDebugFallback)
+    console.error("Fallback is", metrics.fallback, metrics.requestId);
 }
 
 //
