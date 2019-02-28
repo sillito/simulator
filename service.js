@@ -32,12 +32,12 @@ const args = require("minimist")(process.argv.slice(2), {
     log_level: 3,
     mean: 200,
     std: 50,
-    failure_rate: 0.01,
+    failure_rate: 0,
     failure_mean: 100,
     failure_std: 25,
     response_size: 1024 * 1024,
     failure_response_size: 512,
-    cache_hit_rate: 0.5,
+    cache_hit_rate: 0,
     services: [],
     type: "timed",
     max_tries: 5, // global value for all dependencies, atm
@@ -120,22 +120,11 @@ const server = http.createServer(async (req, res) => {
     );
     log(DEBUG, `sampled ms=${waitTime}, actual ms=${elapsedTime}`, requestId);
 
-    let fallback = false;
-    if (res.statusCode == 500) {
-      res.statusCode = 200;
-      fallback = true;
-      console.error("WWWWWWWW");
-    }
-
-    recordMetrics(
-      {
-        requestId,
-        status: res.statusCode,
-        serverSideTime: elapsedTime,
-        fallback
-      },
-      fallback
-    );
+    recordMetrics({
+      requestId,
+      status: res.statusCode,
+      elapsedTime
+    });
 
     connectionsCount -= 1;
   });
@@ -181,34 +170,30 @@ async function callService(requestId, serviceURL) {
   //
   var startTime = Date.now();
   if (weightedCoinToss(args.cache_hit_rate)) {
-    recordMetrics(requestId, {
+    recordMetrics({
+      requestId,
       service: serviceURL,
-      status: 200,
-      tries: 0,
       cache: true,
-      client_side_time: Date.now() - startTime
+      tries: 0,
+      dependencyTime: Date.now() - startTime
     });
     return 200;
   }
   const { response, attempt } = await attemptRequestToService(serviceURL);
 
-  let fallback = false;
-  if (response.statusCode == 500) {
-    response.statusCode = 200;
-    fallback = true;
-    console.error("XXXXXXXXXXXXXXXXXXX");
-  }
+  const fallback = response.statusCode == 500;
 
   recordMetrics({
     requestId,
     service: serviceURL,
     status: response.statusCode,
     tries: attempt,
-    clientSideTime: Date.now() - startTime,
+    dependencyTime: Date.now() - startTime,
     fallback
   });
 
-  return response.statusCode;
+  // Inject fallback strategies here. Right now strategy is to just set statusCode to 200
+  return fallback ? 200 : response.statusCode;
 }
 
 async function attemptRequestToService(serviceURL, attempt = 0, error = null) {
@@ -341,10 +326,8 @@ function log(level, message, requestId = "") {
   );
 }
 
-function recordMetrics(metrics, shouldDebugFallback = false) {
+function recordMetrics(metrics) {
   console.log(JSON.stringify(metrics));
-  if (shouldDebugFallback)
-    console.error("Fallback is", metrics.fallback, metrics.requestId);
 }
 
 //
