@@ -42,7 +42,8 @@ const args = require("minimist")(process.argv.slice(2), {
     type: "timed",
     max_tries: 5, // global value for all dependencies, atm
     timeout: 200, // global value for all dependencies, atm
-    seed: "secret"
+    seed: "secret",
+    fallback: false
   }
 });
 
@@ -181,7 +182,7 @@ async function callService(requestId, serviceURL) {
   }
   const { response, attempt } = await attemptRequestToService(serviceURL);
 
-  const fallback = response.statusCode == 500;
+  const fallback = args.fallback && response.statusCode == 500;
 
   recordMetrics({
     requestId,
@@ -227,6 +228,7 @@ async function attemptRequestToService(serviceURL, attempt = 0, error = null) {
     });
 
     request.on("error", e => {
+      console.error("Error caught", e);
       // retry on any connection errors
       resolve(attemptRequestToService(serviceURL, attempt, e));
     });
@@ -290,11 +292,12 @@ async function callServicesSerially(requestId, serviceURLs) {
 function respond(res, status) {
   let body;
   if (status == 200) {
-    body = Buffer.alloc(args.response_size);
+    // body = Buffer.alloc(args.response_size);
+    body = "hi";
   } else if (status == 500) {
-    body = Buffer.alloc(args.failure_response_size);
+    body = "error"; //Buffer.alloc(args.failure_response_size);
   } else {
-    body = Buffer.alloc(args.failure_response_size);
+    body = "error"; //Buffer.alloc(args.failure_response_size);
     log(
       ERROR,
       `Unexpected response status ${status} requested to be set. Sending failure instead.`
@@ -302,8 +305,8 @@ function respond(res, status) {
   }
 
   res.statusCode = status;
-  res.setHeader("Content-Type", "application/octet-stream");
-  res.setHeader("Content-Length", body.byteLength);
+  res.setHeader("Content-Type", "text/html");
+  res.setHeader("Content-Length", body.length);
   res.end(body);
 }
 

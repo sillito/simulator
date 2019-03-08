@@ -26,9 +26,7 @@ sleep 2 # give services time to start up before running the experiment
 # Use ab command to execute the experiment
 #
 echo [Running experiment]
-ab -l -n 100 -c 20 -e $DIR/ab.csv http://127.0.0.1:3001/ > $DIR/ab1.output
-ab -l -n 100 -c 20 -e $DIR/ab.csv http://127.0.0.1:3002/ > $DIR/ab2.output
-ab -l -n 100 -c 20 -e $DIR/ab.csv http://127.0.0.1:3003/ > $DIR/ab3.output
+ab -l -k -n 2000 -c 2000 -e $DIR/ab.csv http://10.90.2.44:3001/ > $DIR/ab1.output
 
 #
 # convert the metrics logs to csv files
