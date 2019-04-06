@@ -164,7 +164,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-async function callService(requestId, serviceURL) {
+export async function callService(requestId, serviceURL) {
   //
   // Call serviceURL and call cb with the status code when the service call
   // is complete.
@@ -197,7 +197,11 @@ async function callService(requestId, serviceURL) {
   return fallback ? 200 : response.statusCode;
 }
 
-async function attemptRequestToService(serviceURL, attempt = 0, error = null) {
+async function attemptRequestToService(
+  serviceURL,
+  attempt = 0,
+  error = null
+): Promise<{ response: { statusCode: Number }; attempt: Number }> {
   attempt++;
   if (attempt > args.max_tries) {
     return { response: { statusCode: 500 }, attempt: args.max_tries }; // TODO: what should we do when we hit max_tries?
@@ -269,7 +273,7 @@ async function callServicesConcurrently(requestId, serviceURLs) {
   });
 }
 
-async function callServicesSerially(requestId, serviceURLs) {
+export async function callServicesSerially(requestId, serviceURLs) {
   var serviceURL = serviceURLs.shift();
 
   // recurse until out of URLs to process
@@ -289,7 +293,7 @@ async function callServicesSerially(requestId, serviceURLs) {
 // This service always responds in one of two ways: 200 or 500
 //
 
-function respond(res, status) {
+export function respond(res, status) {
   let body;
   if (status == 200) {
     // body = Buffer.alloc(args.response_size);
