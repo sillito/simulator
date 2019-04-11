@@ -5,5 +5,5 @@
     "lib": ["dom", "es2016"],
     "outDir": "./dist/"
   },
-  "exclude": ["node_modules/**/*.ts"]
+  "include": ["src/**/*.ts"]
 }

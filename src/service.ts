@@ -13,68 +13,72 @@
 // * A concurrent service, which is similar to a serial service, except that the
 //   dependencies are called concurrently.
 //
-// TODO
-// * Add additional distribution types, and make the distribution used
-//   configurable
-//
+
 const http = require("http");
 const url = require("url");
 const seedrandom = require("seedrandom");
 
-//
-// configure service using command line arguments, and these defaults
-//
+// command line arguments take in a single config file for this service
 const args = require("minimist")(process.argv.slice(2), {
   default: {
-    name: "s1",
-    port: 3000,
-    hostname: "127.0.0.1",
-    log_level: 3,
-    mean: 200,
-    std: 50,
-    failure_rate: 0,
-    failure_mean: 100,
-    failure_std: 25,
-    response_size: 1024 * 1024,
-    failure_response_size: 512,
-    cache_hit_rate: 0,
-    services: [],
-    type: "timed",
-    max_tries: 5, // global value for all dependencies, atm
-    timeout: 200, // global value for all dependencies, atm
-    seed: "secret",
-    fallback: false
+    config: "./service.example.json"
   }
 });
 
-const rng = seedrandom(args.seed);
+type Configuration = {
+  name: string;
+  hostname: string;
+  type: string;
+  port: number;
+  log_level: number;
+  mean: number;
+  std: number;
+  failure_rate: number;
+  failure_mean: number;
+  failure_std: number;
+  response_size: number;
+  failure_response_size: number;
+  cache_hit_rate: number;
+  dependencies: {
+    service: string;
+  }[];
+  max_tries: number;
+  timeout: number;
+  seed: string;
+  fallback: boolean;
+};
 
-function usage() {
-  //
-  // print a (hopefully) informative usage message
-  //
-  console.error("USAGE: node simulator.js ARGS");
-  console.error("\t--usage\t\tprint this message");
-  console.error("\t--name <name>\ta name for this service name");
-  console.error("\t--port <port to listen on>");
-  console.error("\t--hostname <service hostname>");
-  console.error("\t--log_level [0...4]");
-  console.error("\nPerformance distribution (200s)");
-  console.error("\t--mean <mean>");
-  console.error("\t--std <standard deviation>");
-  console.error("\t--response_size <bytes>");
-  console.error("\nPerformance distribution (500s)");
-  console.error("\t--failure_rate [0..1]");
-  console.error("\t--failure_mean <mean>");
-  console.error("\t--failure_std <standard deviation>");
-  console.error("\t--failure_response_size <bytes>");
-  console.error("\nServices dependencies");
-  console.error("\t--services <list of urls>");
-  console.error("\t--type timed|serial|concurrent");
-  console.error("\t--max_tries <number>");
-  console.error("\t--timeout <number in ms>");
-  console.error("\t--cache_hit_rate [0..1]");
+const defaultConfig: Configuration = {
+  name: "bork",
+  hostname: "127.0.0.1",
+  type: "timed",
+  port: 3000,
+  log_level: 3,
+  mean: 200,
+  std: 50,
+  response_size: 1024,
+  failure_rate: 0,
+  failure_mean: 100,
+  failure_std: 25,
+  failure_response_size: 512,
+  cache_hit_rate: 0,
+  dependencies: [],
+  max_tries: 1,
+  timeout: 200,
+  seed: "secret",
+  fallback: false
+};
+let specifiedConfig: Configuration;
+try {
+  specifiedConfig = require(args.config);
+} catch (err) {
+  throw new Error(`Invalid Configuration File Path Specified: ${args.config}`);
 }
+const config: Configuration = {
+  ...defaultConfig,
+  ...specifiedConfig
+};
+const rng = seedrandom(config.seed);
 
 // a running counter of the number of currently active requests
 let connectionsCount = 0;
@@ -135,27 +139,29 @@ const server = http.createServer(async (req, res) => {
   // with at start up
   //
 
-  if (args.type === "timed") {
-    if (weightedCoinToss(args.failure_rate)) {
-      waitTime = parseInt(normalSample(args.failure_mean, args.failure_std));
+  if (config.type === "timed") {
+    if (weightedCoinToss(config.failure_rate)) {
+      waitTime = parseInt(
+        normalSample(config.failure_mean, config.failure_std)
+      );
       setTimeout(respond, waitTime, res, 500);
     } else {
-      waitTime = parseInt(normalSample(args.mean, args.std));
+      waitTime = parseInt(normalSample(config.mean, config.std));
       setTimeout(respond, waitTime, res, 200);
     }
   } else {
     // TODO probably should use url module to construct this
-    const serviceURLs = args.services
-      .split(",")
-      .map(host => `${host}/?request_id=${requestId}`);
+    const serviceURLs = config.dependencies.map(
+      dependency => `${dependency.service}/?request_id=${requestId}`
+    );
 
     let status;
-    if (args.type === "serial") {
+    if (config.type === "serial") {
       status = await callServicesSerially(requestId, serviceURLs);
-    } else if (args.type === "concurrent") {
+    } else if (config.type === "concurrent") {
       status = await callServicesConcurrently(requestId, serviceURLs);
     } else {
-      log(FATAL, `Unknown service type ${args.type}`);
+      log(FATAL, `Unknown service type ${config.type}`);
     }
 
     if (status) {
@@ -170,7 +176,7 @@ export async function callService(requestId, serviceURL) {
   // is complete.
   //
   var startTime = Date.now();
-  if (weightedCoinToss(args.cache_hit_rate)) {
+  if (weightedCoinToss(config.cache_hit_rate)) {
     recordMetrics({
       requestId,
       service: serviceURL,
@@ -182,7 +188,7 @@ export async function callService(requestId, serviceURL) {
   }
   const { response, attempt } = await attemptRequestToService(serviceURL);
 
-  const fallback = args.fallback && response.statusCode == 500;
+  const fallback = config.fallback && response.statusCode == 500;
 
   recordMetrics({
     requestId,
@@ -203,14 +209,14 @@ async function attemptRequestToService(
   error = null
 ): Promise<{ response: { statusCode: Number }; attempt: Number }> {
   attempt++;
-  if (attempt > args.max_tries) {
-    return { response: { statusCode: 500 }, attempt: args.max_tries }; // TODO: what should we do when we hit max_tries?
+  if (attempt > config.max_tries) {
+    return { response: { statusCode: 500 }, attempt: config.max_tries }; // TODO: what should we do when we hit max_tries?
   }
 
   if (error) {
     log(
       DEBUG,
-      `Retry due to ${error.message} (${attempt} of ${args.max_tries})`
+      `Retry due to ${error.message} (${attempt} of ${config.max_tries})`
     );
   }
 
@@ -238,7 +244,7 @@ async function attemptRequestToService(
     });
 
     // setting a timeout also implictly destroys socket
-    request.setTimeout(args.timeout);
+    request.setTimeout(config.timeout);
 
     request.end();
   });
@@ -296,12 +302,12 @@ export async function callServicesSerially(requestId, serviceURLs) {
 export function respond(res, status) {
   let body;
   if (status == 200) {
-    // body = Buffer.alloc(args.response_size);
+    // body = Buffer.alloc(config.response_size);
     body = "hi";
   } else if (status == 500) {
-    body = "error"; //Buffer.alloc(args.failure_response_size);
+    body = "error"; //Buffer.alloc(config.failure_response_size);
   } else {
-    body = "error"; //Buffer.alloc(args.failure_response_size);
+    body = "error"; //Buffer.alloc(config.failure_response_size);
     log(
       ERROR,
       `Unexpected response status ${status} requested to be set. Sending failure instead.`
@@ -326,10 +332,10 @@ const DEBUG = 4,
 const LOG_LEVEL_NAMES = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"];
 
 function log(level, message, requestId = "") {
-  if (level > args.log_level) return;
+  if (level > config.log_level) return;
 
   console.error(
-    `[${args.name}]\t${LOG_LEVEL_NAMES[level]}\t${requestId}\t ${message}`
+    `[${config.name}]\t${LOG_LEVEL_NAMES[level]}\t${requestId}\t ${message}`
   );
 }
 
@@ -337,52 +343,43 @@ function recordMetrics(metrics) {
   console.log(JSON.stringify(metrics));
 }
 
-//
-// functions for sampling from common distributions
-//
-
+/**
+ * Sample from a common distribution
+ * @param mean
+ * @param std
+ */
 function normalSample(mean, std) {
   return standardNormalSample() * std + mean;
 }
 
+/**
+ * Math.random() is a uniform distribution, we use the Box-Muller
+ * transform to get a normal distribution:
+ * https://en.wikipedia.org/wiki/Box–Muller_transform
+ * https://stackoverflow.com/questions/25582882
+ */
 function standardNormalSample() {
-  //
-  // Math.random() is a uniform distribution, we use the Box-Muller
-  // transform to get a normal distribution:
-  // https://en.wikipedia.org/wiki/Box–Muller_transform
-  // https://stackoverflow.com/questions/25582882
-  //
-  var u = 0,
+  let u = 0,
     v = 0;
   while (u === 0) u = rng(); // converting [0,1) to (0,1)
   while (v === 0) v = rng();
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-function poisson_sample() {
-  // TODO
-}
-
+/**
+ * Generate a chance to enter into this branch.
+ *
+ * @return boolean true with probabilty 'weight' (in the interval [0..1]) and
+ * false with probabilty '1-weight'
+ */
 function weightedCoinToss(weight) {
-  //
-  // returns true with probabilty 'weight' (in the interval [0..1]) and
-  // false with probabilty '1-weight'
-  //
   return rng() < weight;
 }
 
-//
 // main entry point, when service is called directly from command line
-//
-
 if (require.main === module) {
-  if (args.usage) {
-    usage();
-    process.exit(1);
-  }
-
-  server.listen(args.port, args.hostname, () => {
-    log(INFO, `Service running at http://${args.hostname}:${args.port}/`);
-    log(DEBUG, `With args ${JSON.stringify(args)}`);
+  server.listen(config.port, config.hostname, () => {
+    log(INFO, `Service running at http://${config.hostname}:${config.port}/`);
+    log(DEBUG, `With config ${JSON.stringify(config)}`);
   });
 }
