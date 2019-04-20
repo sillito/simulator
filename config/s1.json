@@ -1,0 +1,16 @@
+{
+  "name": "s1",
+  "type": "serial",
+  "port": 3001,
+  "dependencies": [
+    {
+      "service": "http://127.0.0.1:3000",
+      "queue": {
+        "maxSize": 2
+      },
+      "poolMaxSize": 2
+    }
+  ],
+  "max_tries": 1,
+  "timeout": 1000
+}

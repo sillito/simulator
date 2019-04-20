@@ -1,0 +1,8 @@
+{
+  "name": "bork",
+  "type": "timed",
+  "port": 3000,
+  "failure_rate": 0,
+  "mean": 20,
+  "std": 5
+}

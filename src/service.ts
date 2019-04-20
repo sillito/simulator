@@ -14,16 +14,23 @@
 //   dependencies are called concurrently.
 //
 
+import { DeferredPromise } from "./DeferredPromise";
+import {
+  DependencyPool,
+  DependencyRequest,
+  DependencyResponse,
+  DependencyRequestFunction
+} from "./DependencyPool";
+
 const http = require("http");
 const url = require("url");
 const seedrandom = require("seedrandom");
 
-// command line arguments take in a single config file for this service
-const args = require("minimist")(process.argv.slice(2), {
-  default: {
-    config: "./service.example.json"
-  }
-});
+type Dependency = {
+  service: string;
+  queue: any;
+  poolMaxSize?: number;
+};
 
 type Configuration = {
   name: string;
@@ -39,55 +46,78 @@ type Configuration = {
   response_size: number;
   failure_response_size: number;
   cache_hit_rate: number;
-  dependencies: {
-    service: string;
-  }[];
+  dependencies: Dependency[];
   max_tries: number;
   timeout: number;
   seed: string;
   fallback: boolean;
 };
 
-const defaultConfig: Configuration = {
-  name: "bork",
-  hostname: "127.0.0.1",
-  type: "timed",
-  port: 3000,
-  log_level: 3,
-  mean: 200,
-  std: 50,
-  response_size: 1024,
-  failure_rate: 0,
-  failure_mean: 100,
-  failure_std: 25,
-  failure_response_size: 512,
-  cache_hit_rate: 0,
-  dependencies: [],
-  max_tries: 1,
-  timeout: 200,
-  seed: "secret",
-  fallback: false
-};
-let specifiedConfig: Configuration;
-try {
-  specifiedConfig = require(args.config);
-} catch (err) {
-  throw new Error(`Invalid Configuration File Path Specified: ${args.config}`);
-}
-const config: Configuration = {
-  ...defaultConfig,
-  ...specifiedConfig
-};
-const rng = seedrandom(config.seed);
+// The Server configuration, passed in through command line and defaulted.
+let config: Configuration;
+
+// A seeded random number generator
+let rng;
+
+// Dependency level Information
+const dependencies: { [service: string]: DependencyPool } = {};
 
 // a running counter of the number of currently active requests
 let connectionsCount = 0;
 
-//
-// Each request is assigned a request id (unless a request id is passed as part
-// of the request's query string). ATM, this is just a simple one-up counter.
-//
+// The ID assigned to new requests.
 let newRequestId = 0;
+
+function loadConfiguration() {
+  // command line arguments take in a single config file for this service
+  const args = require("minimist")(process.argv.slice(2), {
+    default: {
+      config: "./service.example.json"
+    }
+  });
+  const defaultConfig: Configuration = {
+    name: "bork",
+    hostname: "127.0.0.1",
+    type: "timed",
+    port: 3000,
+    log_level: 3,
+    mean: 200,
+    std: 50,
+    response_size: 1024,
+    failure_rate: 0,
+    failure_mean: 100,
+    failure_std: 25,
+    failure_response_size: 512,
+    cache_hit_rate: 0,
+    dependencies: [],
+    max_tries: 1,
+    timeout: 200,
+    seed: "secret",
+    fallback: false
+  };
+  let specifiedConfig: Configuration;
+  try {
+    specifiedConfig = require(args.config);
+  } catch (err) {
+    throw new Error(
+      `Invalid Configuration File Path Specified: ${args.config}`
+    );
+  }
+  config = {
+    ...defaultConfig,
+    ...specifiedConfig
+  };
+
+  config.dependencies.forEach(dep => {
+    dependencies[dep.service] = new DependencyPool(
+      dep.service,
+      dep.queue,
+      dep.poolMaxSize || 10
+    );
+  });
+
+  rng = seedrandom(config.seed);
+}
 
 // return the existing Id or generate an auto incrementing ID
 function getRequestId(request) {
@@ -95,13 +125,6 @@ function getRequestId(request) {
   return query.requestId || ++newRequestId;
 }
 
-//
-// Listen for requests, and respond with a status code, and response time
-// determined by a set of rules intended to simulate a real service
-//
-// TODO: add support for reading the body of a POST request, before taking
-// action on the request
-//
 const server = http.createServer(async (req, res) => {
   connectionsCount++;
 
@@ -150,16 +173,13 @@ const server = http.createServer(async (req, res) => {
       setTimeout(respond, waitTime, res, 200);
     }
   } else {
-    // TODO probably should use url module to construct this
-    const serviceURLs = config.dependencies.map(
-      dependency => `${dependency.service}/?request_id=${requestId}`
-    );
+    const services = config.dependencies.map(dep => dep.service);
 
     let status;
     if (config.type === "serial") {
-      status = await callServicesSerially(requestId, serviceURLs);
+      status = await callServicesSerially(requestId, services);
     } else if (config.type === "concurrent") {
-      status = await callServicesConcurrently(requestId, serviceURLs);
+      status = await callServicesConcurrently(requestId, services);
     } else {
       log(FATAL, `Unknown service type ${config.type}`);
     }
@@ -170,44 +190,84 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-export async function callService(requestId, serviceURL) {
-  //
-  // Call serviceURL and call cb with the status code when the service call
-  // is complete.
-  //
+export async function callService(requestId: number, service: string) {
+  // Account for cache hit
   var startTime = Date.now();
   if (weightedCoinToss(config.cache_hit_rate)) {
     recordMetrics({
       requestId,
-      service: serviceURL,
+      service: service,
       cache: true,
       tries: 0,
       dependencyTime: Date.now() - startTime
     });
     return 200;
   }
-  const { response, attempt } = await attemptRequestToService(serviceURL);
 
-  const fallback = config.fallback && response.statusCode == 500;
+  // here is place for circuit breaker
 
+  // Queue
+  let dependencyResponse: Promise<DependencyResponse>;
+  const dependency: DependencyPool = dependencies[service];
+  try {
+    //log(INFO, "      add pool");
+    //log(INFO, "    " + JSON.stringify(dependencies));
+    //log(INFO, "    " + JSON.stringify(service));
+    dependencyResponse = dependency.add({
+      requestId,
+      service: `${service}/?request_id=${requestId}`,
+      requestFunction: attemptRequestToService
+    });
+  } catch (err) {
+    // A rejection can occur because the queue is full
+    recordMetrics({
+      requestId,
+      service,
+      status: 500,
+      tries: 0,
+      dependencyTime: Date.now() - startTime,
+      fallback: true
+    });
+
+    return await fallback(requestId, service);
+  }
+
+  // call the actual service
+  const { response, attempt } = await dependencyResponse; //attemptRequestToService(serviceURL);
+  let status = response.statusCode;
+
+  // Account for fallback, if execution fails.
+  const shouldFallback = config.fallback && status == 500;
+
+  if (shouldFallback) {
+    status = await fallback(requestId, service);
+  }
+
+  // record metrics
   recordMetrics({
     requestId,
-    service: serviceURL,
-    status: response.statusCode,
+    service,
+    status,
     tries: attempt,
     dependencyTime: Date.now() - startTime,
     fallback
   });
 
-  // Inject fallback strategies here. Right now strategy is to just set statusCode to 200
-  return fallback ? 200 : response.statusCode;
+  return response.statusCode;
+}
+
+async function fallback(
+  requestId: number,
+  serviceURL: string
+): Promise<number> {
+  return 200;
 }
 
 async function attemptRequestToService(
   serviceURL,
   attempt = 0,
   error = null
-): Promise<{ response: { statusCode: Number }; attempt: Number }> {
+): Promise<DependencyResponse> {
   attempt++;
   if (attempt > config.max_tries) {
     return { response: { statusCode: 500 }, attempt: config.max_tries }; // TODO: what should we do when we hit max_tries?
@@ -378,6 +438,7 @@ function weightedCoinToss(weight) {
 
 // main entry point, when service is called directly from command line
 if (require.main === module) {
+  loadConfiguration();
   server.listen(config.port, config.hostname, () => {
     log(INFO, `Service running at http://${config.hostname}:${config.port}/`);
     log(DEBUG, `With config ${JSON.stringify(config)}`);
