@@ -83,22 +83,28 @@ readline.on("close", () => {
       ].join(",")
     );
   } else {
+    const decimals = 2;
+    const res200Percent = (status[200] / requests) * 100;
+    const res500Percent = (status[500] / requests) * 100;
+    const cacheHitsPercent = (dependency.cacheHits / requests) * 100;
+    const fallbackPercent = (dependency.fallbacks / requests) * 100;
+    const meanLatency = latency.total / requests;
     const table = cTable.getTable([
       {
         trial: args.trial,
         "Req. Recieved": requests,
-        "Res. (200)": `${status[200]} (${(status[200] / requests) * 100}%)`,
-        "Res. (500)": `${status[500]} (${(status[500] / requests) * 100}%)`,
+        "Res. (200)": `${status[200]} (${res200Percent.toFixed(decimals)}%)`,
+        "Res. (500)": `${status[500]} (${res500Percent.toFixed(decimals)}%)`,
         "Dependency Cache Hits": `${
           dependency.cacheHits
-        } (${(dependency.cacheHits / requests) * 100}%)`,
+        } (${cacheHitsPercent.toFixed(decimals)}%)`,
         "Dependency Req.": dependency.attempts,
         "Dependency Fallbacks": `${
           dependency.fallbacks
-        } (${(dependency.fallbacks / requests) * 100}%)`,
+        } (${fallbackPercent.toFixed(decimals)}%)`,
         "Latency (min)": latency.min,
         "Latency (max)": latency.max,
-        "Latency (mean)": latency.total / requests
+        "Latency (mean)": meanLatency.toFixed(2)
       }
     ]);
     console.log(table);
