@@ -1,13 +1,17 @@
 import { DeferredPromise } from "./DeferredPromise";
 import { Queue } from "./queues/Queue";
 import { BoundedQueue } from "./queues/BoundedQueue";
+import { PriorityQueue } from "./queues/PriorityQueue";
+import { Req } from "./service";
 
 export type DependencyRequest = {
-  requestId: number;
+  request: Req;
   service: string;
   requestFunction: DependencyRequestFunction;
   response?: DeferredPromise<DependencyResponse>;
 };
+
+export type DependencyCallback = (error?: any, value?: any) => void;
 
 export type DependencyRequestFunction = (
   service: string,
@@ -30,14 +34,22 @@ export class DependencyPool {
   service: string;
 
   queue: Queue<DependencyRequest>;
+  queueConfiguration;
 
   pool: DependencyRequest[];
   poolMaxSize: number;
 
   constructor(service, queueConfiguration, poolMaxSize) {
     this.service = service;
+    this.queueConfiguration = queueConfiguration;
 
-    this.queue = new BoundedQueue(queueConfiguration);
+    switch (queueConfiguration.type) {
+      case "PriorityQueue":
+        this.queue = new PriorityQueue(queueConfiguration);
+        break;
+      default:
+        this.queue = new BoundedQueue(queueConfiguration);
+    }
 
     this.pool = [];
     this.poolMaxSize = poolMaxSize;
@@ -45,11 +57,10 @@ export class DependencyPool {
 
   add(request: DependencyRequest): Promise<DependencyResponse> {
     const wasAdded = this.queue.add(request);
-    if (wasAdded) {
-      request.response = new DeferredPromise<DependencyResponse>();
-    } else {
-      throw new Error("Could not add to Queue");
+    if (!wasAdded) {
+      return Promise.reject(new Error("Could not be added to the Queue"));
     }
+    request.response = new DeferredPromise<DependencyResponse>();
 
     if (this.canWork()) {
       this.grabWork();

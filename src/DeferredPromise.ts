@@ -33,6 +33,10 @@ export class DeferredPromise<T> implements Promise<T> {
     return this.promise.then(onrejected);
   }
 
+  finally(onfinally?: () => void): Promise<T> {
+    throw new Error("Method not implemented.");
+  }
+
   public resolve(val: T) {
     this._resolveSelf(val);
   }

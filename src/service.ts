@@ -21,6 +21,7 @@ import {
   DependencyResponse,
   DependencyRequestFunction
 } from "./DependencyPool";
+import * as querystring from "querystring";
 
 const http = require("http");
 const url = require("url");
@@ -30,6 +31,12 @@ type Dependency = {
   service: string;
   queue: any;
   poolMaxSize?: number;
+};
+
+// Properties that can be passed along to other services via querystring
+export type Req = {
+  requestId: number;
+  value?: number;
 };
 
 type Configuration = {
@@ -133,6 +140,10 @@ const server = http.createServer(async (req, res) => {
   let waitTime = 0;
 
   const requestId = getRequestId(req);
+  const request: Req = {
+    requestId,
+    value: Math.random()
+  };
 
   req.on("aborted", () => {
     const elapsedTime = Date.now() - startTime;
@@ -177,9 +188,9 @@ const server = http.createServer(async (req, res) => {
 
     let status;
     if (config.type === "serial") {
-      status = await callServicesSerially(requestId, services);
+      status = await callServicesSerially(request, services);
     } else if (config.type === "concurrent") {
-      status = await callServicesConcurrently(requestId, services);
+      status = await callServicesConcurrently(request, services);
     } else {
       log(FATAL, `Unknown service type ${config.type}`);
     }
@@ -190,12 +201,12 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-export async function callService(requestId: number, service: string) {
+export async function callService(request: Req, service: string) {
   // Account for cache hit
   var startTime = Date.now();
   if (weightedCoinToss(config.cache_hit_rate)) {
     recordMetrics({
-      requestId,
+      requestId: request.requestId,
       service: service,
       cache: true,
       tries: 0,
@@ -207,21 +218,21 @@ export async function callService(requestId: number, service: string) {
   // here is place for circuit breaker
 
   // Queue
-  let dependencyResponse: Promise<DependencyResponse>;
+  let dependencyResponse: DependencyResponse;
   const dependency: DependencyPool = dependencies[service];
   try {
     //log(INFO, "      add pool");
     //log(INFO, "    " + JSON.stringify(dependencies));
     //log(INFO, "    " + JSON.stringify(service));
-    dependencyResponse = dependency.add({
-      requestId,
-      service: `${service}/?request_id=${requestId}`,
+    dependencyResponse = await dependency.add({
+      request: request,
+      service: `${service}/?${querystring.stringify(request)}`,
       requestFunction: attemptRequestToService
     });
   } catch (err) {
-    // A rejection can occur because the queue is full
+    // A rejection can occur while waiting for the dependency
     recordMetrics({
-      requestId,
+      requestId: request.requestId,
       service,
       status: 500,
       tries: 0,
@@ -229,23 +240,23 @@ export async function callService(requestId: number, service: string) {
       fallback: true
     });
 
-    return await fallback(requestId, service);
+    return await fallback(request, service);
   }
 
   // call the actual service
-  const { response, attempt } = await dependencyResponse; //attemptRequestToService(serviceURL);
+  const { response, attempt } = dependencyResponse; //attemptRequestToService(serviceURL);
   let status = response.statusCode;
 
   // Account for fallback, if execution fails.
   const shouldFallback = config.fallback && status == 500;
 
   if (shouldFallback) {
-    status = await fallback(requestId, service);
+    status = await fallback(request, service);
   }
 
   // record metrics
   recordMetrics({
-    requestId,
+    requestId: request.requestId,
     service,
     status,
     tries: attempt,
@@ -256,10 +267,7 @@ export async function callService(requestId: number, service: string) {
   return response.statusCode;
 }
 
-async function fallback(
-  requestId: number,
-  serviceURL: string
-): Promise<number> {
+async function fallback(request: Req, serviceURL: string): Promise<number> {
   return 200;
 }
 
@@ -317,12 +325,12 @@ async function attemptRequestToService(
 // respond with a status code of 500, without waiting for all service calls.
 //
 
-async function callServicesConcurrently(requestId, serviceURLs) {
+async function callServicesConcurrently(request: Req, serviceURLs) {
   let responsesPending = serviceURLs.length; // TODO might be worth logging this value on 500
 
   return new Promise(resolve => {
     serviceURLs.forEach(async serviceURL => {
-      const status = await callService(requestId, serviceURL);
+      const status = await callService(request, serviceURL);
 
       // immediately return 500 error, don't allow future services calls to respond
       if (status === 500) {
@@ -339,7 +347,7 @@ async function callServicesConcurrently(requestId, serviceURLs) {
   });
 }
 
-export async function callServicesSerially(requestId, serviceURLs) {
+export async function callServicesSerially(request: Req, serviceURLs) {
   var serviceURL = serviceURLs.shift();
 
   // recurse until out of URLs to process
@@ -347,12 +355,12 @@ export async function callServicesSerially(requestId, serviceURLs) {
     return 200;
   }
 
-  const status = await callService(requestId, serviceURL);
+  const status = await callService(request, serviceURL);
   if (status === 500) {
     return status;
   }
 
-  return callServicesSerially(requestId, serviceURLs);
+  return callServicesSerially(request, serviceURLs);
 }
 
 //
