@@ -1,0 +1,16 @@
+{
+  "name": "s2",
+  "type": "serial",
+  "port": 3002,
+  "dependencies": [
+    {
+      "service": "http://127.0.0.1:3000",
+      "queue": {
+        "maxSize": 20
+      },
+      "poolMaxSize": 2
+    }
+  ],
+  "max_tries": 1,
+  "timeout": 1000
+}

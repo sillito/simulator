@@ -13,77 +13,118 @@
 // * A concurrent service, which is similar to a serial service, except that the
 //   dependencies are called concurrently.
 //
-// TODO
-// * Add additional distribution types, and make the distribution used
-//   configurable
-//
+
+import { DeferredPromise } from "./DeferredPromise";
+import {
+  DependencyPool,
+  DependencyRequest,
+  DependencyResponse,
+  DependencyRequestFunction
+} from "./DependencyPool";
+import * as querystring from "querystring";
+
 const http = require("http");
 const url = require("url");
 const seedrandom = require("seedrandom");
 
-//
-// configure service using command line arguments, and these defaults
-//
-const args = require("minimist")(process.argv.slice(2), {
-  default: {
-    name: "s1",
-    port: 3000,
-    hostname: "127.0.0.1",
-    log_level: 3,
-    mean: 200,
-    std: 50,
-    failure_rate: 0,
-    failure_mean: 100,
-    failure_std: 25,
-    response_size: 1024 * 1024,
-    failure_response_size: 512,
-    cache_hit_rate: 0,
-    services: [],
-    type: "timed",
-    max_tries: 5, // global value for all dependencies, atm
-    timeout: 200, // global value for all dependencies, atm
-    seed: "secret",
-    fallback: false
-  }
-});
+type Dependency = {
+  service: string;
+  queue: any;
+  poolMaxSize?: number;
+};
 
-const rng = seedrandom(args.seed);
+// Properties that can be passed along to other services via querystring
+export type Req = {
+  requestId: number;
+  value?: number;
+};
 
-function usage() {
-  //
-  // print a (hopefully) informative usage message
-  //
-  console.error("USAGE: node simulator.js ARGS");
-  console.error("\t--usage\t\tprint this message");
-  console.error("\t--name <name>\ta name for this service name");
-  console.error("\t--port <port to listen on>");
-  console.error("\t--hostname <service hostname>");
-  console.error("\t--log_level [0...4]");
-  console.error("\nPerformance distribution (200s)");
-  console.error("\t--mean <mean>");
-  console.error("\t--std <standard deviation>");
-  console.error("\t--response_size <bytes>");
-  console.error("\nPerformance distribution (500s)");
-  console.error("\t--failure_rate [0..1]");
-  console.error("\t--failure_mean <mean>");
-  console.error("\t--failure_std <standard deviation>");
-  console.error("\t--failure_response_size <bytes>");
-  console.error("\nServices dependencies");
-  console.error("\t--services <list of urls>");
-  console.error("\t--type timed|serial|concurrent");
-  console.error("\t--max_tries <number>");
-  console.error("\t--timeout <number in ms>");
-  console.error("\t--cache_hit_rate [0..1]");
-}
+type Configuration = {
+  name: string;
+  hostname: string;
+  type: string;
+  port: number;
+  log_level: number;
+  mean: number;
+  std: number;
+  failure_rate: number;
+  failure_mean: number;
+  failure_std: number;
+  response_size: number;
+  failure_response_size: number;
+  cache_hit_rate: number;
+  dependencies: Dependency[];
+  max_tries: number;
+  timeout: number;
+  seed: string;
+  fallback: boolean;
+};
+
+// The Server configuration, passed in through command line and defaulted.
+let config: Configuration;
+
+// A seeded random number generator
+let rng;
+
+// Dependency level Information
+const dependencies: { [service: string]: DependencyPool } = {};
 
 // a running counter of the number of currently active requests
 let connectionsCount = 0;
 
-//
-// Each request is assigned a request id (unless a request id is passed as part
-// of the request's query string). ATM, this is just a simple one-up counter.
-//
+// The ID assigned to new requests.
 let newRequestId = 0;
+
+function loadConfiguration() {
+  // command line arguments take in a single config file for this service
+  const args = require("minimist")(process.argv.slice(2), {
+    default: {
+      config: "./service.example.json"
+    }
+  });
+  const defaultConfig: Configuration = {
+    name: "bork",
+    hostname: "127.0.0.1",
+    type: "timed",
+    port: 3000,
+    log_level: 3,
+    mean: 200,
+    std: 50,
+    response_size: 1024,
+    failure_rate: 0,
+    failure_mean: 100,
+    failure_std: 25,
+    failure_response_size: 512,
+    cache_hit_rate: 0,
+    dependencies: [],
+    max_tries: 1,
+    timeout: 200,
+    seed: "secret",
+    fallback: false
+  };
+  let specifiedConfig: Configuration;
+  try {
+    specifiedConfig = require(args.config);
+  } catch (err) {
+    throw new Error(
+      `Invalid Configuration File Path Specified: ${args.config}`
+    );
+  }
+  config = {
+    ...defaultConfig,
+    ...specifiedConfig
+  };
+
+  config.dependencies.forEach(dep => {
+    dependencies[dep.service] = new DependencyPool(
+      dep.service,
+      dep.queue,
+      dep.poolMaxSize || 10
+    );
+  });
+
+  rng = seedrandom(config.seed);
+}
 
 // return the existing Id or generate an auto incrementing ID
 function getRequestId(request) {
@@ -91,13 +132,6 @@ function getRequestId(request) {
   return query.requestId || ++newRequestId;
 }
 
-//
-// Listen for requests, and respond with a status code, and response time
-// determined by a set of rules intended to simulate a real service
-//
-// TODO: add support for reading the body of a POST request, before taking
-// action on the request
-//
 const server = http.createServer(async (req, res) => {
   connectionsCount++;
 
@@ -106,6 +140,10 @@ const server = http.createServer(async (req, res) => {
   let waitTime = 0;
 
   const requestId = getRequestId(req);
+  const request: Req = {
+    requestId,
+    value: Math.random()
+  };
 
   req.on("aborted", () => {
     const elapsedTime = Date.now() - startTime;
@@ -135,27 +173,26 @@ const server = http.createServer(async (req, res) => {
   // with at start up
   //
 
-  if (args.type === "timed") {
-    if (weightedCoinToss(args.failure_rate)) {
-      waitTime = parseInt(normalSample(args.failure_mean, args.failure_std));
+  if (config.type === "timed") {
+    if (weightedCoinToss(config.failure_rate)) {
+      waitTime = parseInt(
+        normalSample(config.failure_mean, config.failure_std)
+      );
       setTimeout(respond, waitTime, res, 500);
     } else {
-      waitTime = parseInt(normalSample(args.mean, args.std));
+      waitTime = parseInt(normalSample(config.mean, config.std));
       setTimeout(respond, waitTime, res, 200);
     }
   } else {
-    // TODO probably should use url module to construct this
-    const serviceURLs = args.services
-      .split(",")
-      .map(host => `${host}/?request_id=${requestId}`);
+    const services = config.dependencies.map(dep => dep.service);
 
     let status;
-    if (args.type === "serial") {
-      status = await callServicesSerially(requestId, serviceURLs);
-    } else if (args.type === "concurrent") {
-      status = await callServicesConcurrently(requestId, serviceURLs);
+    if (config.type === "serial") {
+      status = await callServicesSerially(request, services);
+    } else if (config.type === "concurrent") {
+      status = await callServicesConcurrently(request, services);
     } else {
-      log(FATAL, `Unknown service type ${args.type}`);
+      log(FATAL, `Unknown service type ${config.type}`);
     }
 
     if (status) {
@@ -164,53 +201,90 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-export async function callService(requestId, serviceURL) {
-  //
-  // Call serviceURL and call cb with the status code when the service call
-  // is complete.
-  //
+export async function callService(request: Req, service: string) {
+  // Account for cache hit
   var startTime = Date.now();
-  if (weightedCoinToss(args.cache_hit_rate)) {
+  if (weightedCoinToss(config.cache_hit_rate)) {
     recordMetrics({
-      requestId,
-      service: serviceURL,
+      requestId: request.requestId,
+      service: service,
       cache: true,
       tries: 0,
       dependencyTime: Date.now() - startTime
     });
     return 200;
   }
-  const { response, attempt } = await attemptRequestToService(serviceURL);
 
-  const fallback = args.fallback && response.statusCode == 500;
+  // here is place for circuit breaker
 
+  // Queue
+  let dependencyResponse: DependencyResponse;
+  const dependency: DependencyPool = dependencies[service];
+  try {
+    //log(INFO, "      add pool");
+    //log(INFO, "    " + JSON.stringify(dependencies));
+    //log(INFO, "    " + JSON.stringify(service));
+    dependencyResponse = await dependency.add({
+      request: request,
+      service: `${service}/?${querystring.stringify(request)}`,
+      requestFunction: attemptRequestToService
+    });
+  } catch (err) {
+    // A rejection can occur while waiting for the dependency
+    recordMetrics({
+      requestId: request.requestId,
+      service,
+      status: 500,
+      tries: 0,
+      dependencyTime: Date.now() - startTime,
+      fallback: true
+    });
+
+    return await fallback(request, service);
+  }
+
+  // call the actual service
+  const { response, attempt } = dependencyResponse; //attemptRequestToService(serviceURL);
+  let status = response.statusCode;
+
+  // Account for fallback, if execution fails.
+  const shouldFallback = config.fallback && status == 500;
+
+  if (shouldFallback) {
+    status = await fallback(request, service);
+  }
+
+  // record metrics
   recordMetrics({
-    requestId,
-    service: serviceURL,
-    status: response.statusCode,
+    requestId: request.requestId,
+    service,
+    status,
     tries: attempt,
     dependencyTime: Date.now() - startTime,
     fallback
   });
 
-  // Inject fallback strategies here. Right now strategy is to just set statusCode to 200
-  return fallback ? 200 : response.statusCode;
+  return response.statusCode;
+}
+
+async function fallback(request: Req, serviceURL: string): Promise<number> {
+  return 200;
 }
 
 async function attemptRequestToService(
   serviceURL,
   attempt = 0,
   error = null
-): Promise<{ response: { statusCode: Number }; attempt: Number }> {
+): Promise<DependencyResponse> {
   attempt++;
-  if (attempt > args.max_tries) {
-    return { response: { statusCode: 500 }, attempt: args.max_tries }; // TODO: what should we do when we hit max_tries?
+  if (attempt > config.max_tries) {
+    return { response: { statusCode: 500 }, attempt: config.max_tries }; // TODO: what should we do when we hit max_tries?
   }
 
   if (error) {
     log(
       DEBUG,
-      `Retry due to ${error.message} (${attempt} of ${args.max_tries})`
+      `Retry due to ${error.message} (${attempt} of ${config.max_tries})`
     );
   }
 
@@ -238,7 +312,7 @@ async function attemptRequestToService(
     });
 
     // setting a timeout also implictly destroys socket
-    request.setTimeout(args.timeout);
+    request.setTimeout(config.timeout);
 
     request.end();
   });
@@ -251,12 +325,12 @@ async function attemptRequestToService(
 // respond with a status code of 500, without waiting for all service calls.
 //
 
-async function callServicesConcurrently(requestId, serviceURLs) {
+async function callServicesConcurrently(request: Req, serviceURLs) {
   let responsesPending = serviceURLs.length; // TODO might be worth logging this value on 500
 
   return new Promise(resolve => {
     serviceURLs.forEach(async serviceURL => {
-      const status = await callService(requestId, serviceURL);
+      const status = await callService(request, serviceURL);
 
       // immediately return 500 error, don't allow future services calls to respond
       if (status === 500) {
@@ -273,7 +347,7 @@ async function callServicesConcurrently(requestId, serviceURLs) {
   });
 }
 
-export async function callServicesSerially(requestId, serviceURLs) {
+export async function callServicesSerially(request: Req, serviceURLs) {
   var serviceURL = serviceURLs.shift();
 
   // recurse until out of URLs to process
@@ -281,12 +355,12 @@ export async function callServicesSerially(requestId, serviceURLs) {
     return 200;
   }
 
-  const status = await callService(requestId, serviceURL);
+  const status = await callService(request, serviceURL);
   if (status === 500) {
     return status;
   }
 
-  return callServicesSerially(requestId, serviceURLs);
+  return callServicesSerially(request, serviceURLs);
 }
 
 //
@@ -296,12 +370,12 @@ export async function callServicesSerially(requestId, serviceURLs) {
 export function respond(res, status) {
   let body;
   if (status == 200) {
-    // body = Buffer.alloc(args.response_size);
+    // body = Buffer.alloc(config.response_size);
     body = "hi";
   } else if (status == 500) {
-    body = "error"; //Buffer.alloc(args.failure_response_size);
+    body = "error"; //Buffer.alloc(config.failure_response_size);
   } else {
-    body = "error"; //Buffer.alloc(args.failure_response_size);
+    body = "error"; //Buffer.alloc(config.failure_response_size);
     log(
       ERROR,
       `Unexpected response status ${status} requested to be set. Sending failure instead.`
@@ -326,10 +400,10 @@ const DEBUG = 4,
 const LOG_LEVEL_NAMES = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG"];
 
 function log(level, message, requestId = "") {
-  if (level > args.log_level) return;
+  if (level > config.log_level) return;
 
   console.error(
-    `[${args.name}]\t${LOG_LEVEL_NAMES[level]}\t${requestId}\t ${message}`
+    `[${config.name}]\t${LOG_LEVEL_NAMES[level]}\t${requestId}\t ${message}`
   );
 }
 
@@ -337,52 +411,44 @@ function recordMetrics(metrics) {
   console.log(JSON.stringify(metrics));
 }
 
-//
-// functions for sampling from common distributions
-//
-
+/**
+ * Sample from a common distribution
+ * @param mean
+ * @param std
+ */
 function normalSample(mean, std) {
   return standardNormalSample() * std + mean;
 }
 
+/**
+ * Math.random() is a uniform distribution, we use the Box-Muller
+ * transform to get a normal distribution:
+ * https://en.wikipedia.org/wiki/Box–Muller_transform
+ * https://stackoverflow.com/questions/25582882
+ */
 function standardNormalSample() {
-  //
-  // Math.random() is a uniform distribution, we use the Box-Muller
-  // transform to get a normal distribution:
-  // https://en.wikipedia.org/wiki/Box–Muller_transform
-  // https://stackoverflow.com/questions/25582882
-  //
-  var u = 0,
+  let u = 0,
     v = 0;
   while (u === 0) u = rng(); // converting [0,1) to (0,1)
   while (v === 0) v = rng();
   return Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v);
 }
 
-function poisson_sample() {
-  // TODO
-}
-
+/**
+ * Generate a chance to enter into this branch.
+ *
+ * @return boolean true with probabilty 'weight' (in the interval [0..1]) and
+ * false with probabilty '1-weight'
+ */
 function weightedCoinToss(weight) {
-  //
-  // returns true with probabilty 'weight' (in the interval [0..1]) and
-  // false with probabilty '1-weight'
-  //
   return rng() < weight;
 }
 
-//
 // main entry point, when service is called directly from command line
-//
-
 if (require.main === module) {
-  if (args.usage) {
-    usage();
-    process.exit(1);
-  }
-
-  server.listen(args.port, args.hostname, () => {
-    log(INFO, `Service running at http://${args.hostname}:${args.port}/`);
-    log(DEBUG, `With args ${JSON.stringify(args)}`);
+  loadConfiguration();
+  server.listen(config.port, config.hostname, () => {
+    log(INFO, `Service running at http://${config.hostname}:${config.port}/`);
+    log(DEBUG, `With config ${JSON.stringify(config)}`);
   });
 }

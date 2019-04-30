@@ -1,0 +1,20 @@
+{
+  "name": "s1",
+  "hostname": "127.0.0.1",
+  "type": "timed",
+  "port": 3000,
+  "log_level": 3,
+  "mean": 200,
+  "std": 50,
+  "failure_rate": 0,
+  "failure_mean": 100,
+  "failure_std": 25,
+  "response_size": 1024,
+  "failure_response_size": 512,
+  "cache_hit_rate": 0,
+  "services": [],
+  "max_tries": 5,
+  "timeout": 200,
+  "seed": "secret",
+  "fallback": false
+}
