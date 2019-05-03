@@ -6,9 +6,9 @@
     {
       "service": "http://127.0.0.1:3000",
       "queue": {
-        "maxSize": 20
+        "maxSize": 5
       },
-      "poolMaxSize": 2
+      "workers": 2
     }
   ],
   "max_tries": 1,

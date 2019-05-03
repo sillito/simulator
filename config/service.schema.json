@@ -1,0 +1,385 @@
+{
+  "$id": "byu/se-lab/service.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "Service Configuration",
+  "type": "object",
+  "properties": {
+    "key": {
+      "type": "string",
+      "description": "A unique identifier for the app. Once set, this should not change.",
+      "examples": ["shopify", "magento"],
+      "minLength": 3,
+      "maxLength": 48,
+      "pattern": "^[a-z-_]+$"
+    },
+    "name": {
+      "type": "string",
+      "description": "A user-friendly display name",
+      "minLength": 2,
+      "maxLength": 48
+    },
+    "description": {
+      "type": "string",
+      "description": "A description of the app's features and capabilities. Markdown is allowed.",
+      "minLength": 80,
+      "maxLength": 4096
+    },
+    "shortDescription": {
+      "type": "string",
+      "description": "A short, one-line description of the app",
+      "minLength": 20,
+      "maxLength": 160,
+      "examples": ["Connects to your Acme store", "Manages your backorders"]
+    },
+    "version": {
+      "type": "string",
+      "description": "A semantic version number",
+      "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(-(0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(\\.(0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*)?(\\+[0-9a-zA-Z-]+(\\.[0-9a-zA-Z-]+)*)?$"
+    },
+    "versionDescription": {
+      "type": "string",
+      "description": "A description of changes in this version. Markdown is allowed.",
+      "minLength": 10,
+      "maxLength": 4096
+    },
+    "logoSquare": {
+      "type": "string",
+      "description": "A path (relative to the app root) to a square logo. Should be a transparent PNG",
+      "pattern": "(\\.png)|(\\.jpg)$"
+    },
+    "logo": {
+      "type": "string",
+      "description": "A path (relative to the app root) to a logo. Should be a transparent PNG",
+      "pattern": "(\\.png)|(\\.jpg)$"
+    },
+    "publicAssets": {
+      "type": "string",
+      "description": "A path (relative to the app root) to a directory of static web assets for the app. These will served by the platform"
+    },
+    "capabilities": {
+      "$ref": "#/definitions/Capabilities"
+    },
+    "params": {
+      "$ref": "#/definitions/Params"
+    },
+    "endpoints": {
+      "$ref": "#/definitions/Endpoints"
+    },
+    "config": {
+      "$ref": "#/definitions/Config"
+    }
+  },
+  "required": [
+    "key",
+    "name",
+    "description",
+    "shortDescription",
+    "version",
+    "versionDescription",
+    "logoSquare",
+    "logo",
+    "capabilities"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "Capabilities": {
+      "type": "object",
+      "description": "The functional capabilities of an app",
+      "properties": {
+        "maps": {
+          "$ref": "#/definitions/Maps"
+        },
+        "dataTypes": {
+          "type": "array",
+          "description": "A list of item types this app can process",
+          "items": {
+            "$ref": "#/definitions/ItemType"
+          }
+        },
+        "dataEvents": {
+          "type": "array",
+          "description": "Data events that this app can subscribe to and process",
+          "items": {
+            "$ref": "#/definitions/DataEventHandler"
+          }
+        },
+        "commands": {
+          "type": "array",
+          "description": "Commands that the platform and/or users can invoke on the app",
+          "items": {
+            "$ref": "#/definitions/Command"
+          }
+        }
+      },
+      "required": ["maps", "dataTypes", "dataEvents", "commands"]
+    },
+    "Maps": {
+      "type": "object",
+      "description": "Mappings used by the app to map data",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "itemType": {
+            "$ref": "#/definitions/ItemType"
+          },
+
+          "path": {
+            "type": "string",
+            "description": "The path (relative to the app root) to the map definition JSON file",
+            "pattern": "\\.json$"
+          },
+          "useDefaultForItemType": {
+            "type": "boolean",
+            "description": "Use the platform default mapping, which is a 1:1 mapping with the item schema"
+          }
+        },
+        "required": ["itemType"],
+        "anyOf": [
+          {
+            "required": ["path"]
+          },
+          {
+            "required": ["useDefaultForItemType"]
+          }
+        ]
+      }
+    },
+    "ItemType": {
+      "type": "string",
+      "description": "A data type defined by the platform",
+      "enum": [
+        "order",
+        "orderLineItem",
+        "product",
+        "productGroup",
+        "customer",
+        "inventory",
+        "shipment",
+        "shipmentLineItem",
+        "shipmentRequest",
+        "shipmentRequestLineItem"
+      ]
+    },
+    "DataEvent": {
+      "type": "string",
+      "description": "An event triggered by a data change",
+      "enum": ["created", "updated"]
+    },
+    "DataEventHandler": {
+      "type": "object",
+      "description": "An event handler for when data changes on the platform",
+      "properties": {
+        "itemType": {
+          "$ref": "#/definitions/ItemType"
+        },
+        "events": {
+          "type": "array",
+          "description": "Data event types that can be processed by this handler",
+          "items": {
+            "$ref": "#/definitions/DataEvent"
+          },
+          "minItems": 1
+        },
+        "path": {
+          "description": "A path to the handler code.",
+          "$ref": "#/definitions/HandlerPath"
+        },
+        "inboundMap": {
+          "type": "string",
+          "description": "A default map to apply to incoming data. The map data type and event data type must be the same"
+        },
+        "maps": {
+          "$ref": "#/definitions/UserConfigurableMaps"
+        }
+      },
+      "required": ["itemType", "events", "path", "inboundMap", "maps"]
+    },
+    "Command": {
+      "type": "object",
+      "description": "A command implemented by the app",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/CommandType"
+        },
+        "method": {
+          "type": "string",
+          "description": "A unique identifier for this method",
+          "pattern": "^[a-zA-Z_-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "A user-friendly name for the command",
+          "examples": ["Save Order", "Add Order to Batch"],
+          "minLength": 2,
+          "maxLength": 24
+        },
+        "description": {
+          "type": "string",
+          "description": "A user-friendly description of what the command does",
+          "minLength": 2,
+          "maxLength": 160
+        },
+        "path": {
+          "$ref": "#/definitions/HandlerPath"
+        },
+        "maps": {
+          "$ref": "#/definitions/UserConfigurableMaps"
+        },
+        "schedule": {
+          "$ref": "#/definitions/CommandSchedule"
+        }
+      },
+      "required": ["type", "method", "name", "description"]
+    },
+    "CommandType": {
+      "type": "string",
+      "description": "A pre-defined command type",
+      "enum": ["configuration", "polling", "app", "webhook", "batch"]
+    },
+    "Params": {
+      "type": "object",
+      "description": "Parameters configurable by the user and made available to the app",
+      "properties": {
+        "description": {
+          "type": "string",
+          "description": "A description of the parameters shown to the user"
+        },
+        "keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ParamKey"
+          }
+        }
+      },
+      "required": ["keys"]
+    },
+    "ParamKey": {
+      "type": "object",
+      "description": "A single parameter",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "The display prompt",
+          "examples": ["Username", "URL"]
+        },
+        "key": {
+          "type": "string",
+          "description": "This is the hash key that will be used to retrieve the value",
+          "pattern": "^[a-zA-Z]+$"
+        },
+        "description": {
+          "type": "string",
+          "description": "A helpful description"
+        },
+        "default": {
+          "type": "string",
+          "description": "A default value for this param"
+        },
+        "hidden": {
+          "type": "boolean",
+          "description": "Whether to show the input as a masked password field"
+        }
+      },
+      "required": ["prompt", "key"]
+    },
+    "Endpoints": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/Endpoint"
+      }
+    },
+    "Endpoint": {
+      "type": "object",
+      "description": "Access to instance endpoints requires an app instance API key in the Authorization header. Public endpoints are accessed at /apps/:key followed by the httpPath and do not require authorization",
+      "properties": {
+        "httpMethod": {
+          "type": "string",
+          "description": "The HTTP method for this endpoint",
+          "enum": ["get", "post", "put", "patch", "delete"],
+          "default": "get"
+        },
+        "httpPath": {
+          "type": "string",
+          "description": "An Express style path, used for routing requests. Should have a leading slash",
+          "examples": ["/orders", "/campaigns/:campaign_id"],
+          "pattern": "^(/:?[a-zA-Z0-9-_]+)+$"
+        },
+        "path": {
+          "$ref": "#/definitions/HandlerPath"
+        },
+        "allowPublic": {
+          "type": "boolean",
+          "description": "Whether the path is also accessible as a public endpoint without",
+          "default": false
+        }
+      },
+
+      "required": ["httpPath", "path"]
+    },
+    "HandlerPath": {
+      "type": "string",
+      "description": "The location of the handler. Optionally, the name of the exported method to invoke. For example, 'events/order' will invoke the 'order' method in 'events/order.js'. The method can also be specified: 'orders#get' will invoke the 'get' method in 'orders.js'.",
+      "examples": ["events/order#handler", "orderHandler"],
+      "pattern": "^[a-zA-Z0-9-_]+(/[a-zA-Z0-9-_]+)*(#[a-zA-Z-_]+)?$"
+    },
+    "UserConfigurableMaps": {
+      "type": "array",
+      "description": "A list of defined map names that may be used by this handler. Presented to the user in the UI",
+      "items": {
+        "type": "string",
+        "description": "The name of a map defined in capabilities -> maps"
+      }
+    },
+    "Config": {
+      "type": "object",
+      "description": "Additional configuration options",
+      "properties": {
+        "auth": {
+          "type": "string",
+          "enum": ["oauth2", "oauth1"]
+        }
+      }
+    },
+    "CommandSchedule": {
+      "type": "object",
+      "description": "Run app or polling commands on a schedule; ignored for other commands",
+      "properties": {
+        "initialStatus": {
+          "type": "string",
+          "enum": ["running", "paused"],
+          "default": "running"
+        },
+        "definition": {
+          "type": "object",
+          "properties": {
+            "interval": {
+              "type": "string",
+              "description": "An interval in the form of XdYhZm. The command will be run an interval after the last execution ends.",
+              "examples": ["12h", "15m", "1d6h10m"],
+              "pattern": "^(?=.*[hmd]$)(?:(\\d+)d\\s*)?(?:(\\d+)h\\s*)?(?:(\\d+)m\\s*)?$"
+            },
+            "cron": {
+              "type": "string",
+              "description": "A cron-style schedule. Precise timing is not guaranteed",
+              "examples": ["*/15 * * * *", "0 0 1 * *"],
+              "pattern": "^((\\*|((\\*\\/)?[1-5]?[0-9]))\\s+)?(\\*|((\\*\\/)?[1-5]?[0-9]))\\s+(\\*|((\\*\\/)?(1?[0-9]|2[0-3])))\\s+(\\*|((\\*\\/)?([1-9]|[12][0-9]|3[0-1])))\\s+(\\*|((\\*\\/)?([1-9]|1[0-2])))\\s+(\\*|((\\*\\/)?[0-6]))$"
+            }
+          },
+          "oneOf": [
+            {
+              "required": ["interval"]
+            },
+            {
+              "required": ["cron"]
+            }
+          ]
+        }
+      },
+      "required": ["definition"]
+    }
+  }
+}

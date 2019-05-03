@@ -4,10 +4,11 @@ import { BoundedQueue } from "./queues/BoundedQueue";
 import { PriorityQueue } from "./queues/PriorityQueue";
 import { Req } from "./service";
 
+// The Object type that is added to queues
 export type DependencyRequest = {
   request: Req;
-  service: string;
-  requestFunction: DependencyRequestFunction;
+  //service: string;
+  //requestFunction: DependencyRequestFunction;
   response?: DeferredPromise<DependencyResponse>;
 };
 
@@ -26,47 +27,70 @@ export type DependencyResponse = {
   attempt: number;
 };
 
+export type Dependency = {
+  service: string;
+
+  workers: number;
+  queue: QueueConfig;
+};
+type QueueConfig = {
+  type: string;
+  maxSize: number;
+  [key: string]: any;
+};
+
 /**
  * A DependencyPool is a Task Queue that sits in front of a pool
  * of active tasks (like a Thread Pool)
  */
 export class DependencyPool {
-  service: string;
+  dependency: Dependency;
+  requestFunction: DependencyRequestFunction;
 
   queue: Queue<DependencyRequest>;
-  queueConfiguration;
-
   pool: DependencyRequest[];
   poolMaxSize: number;
 
-  constructor(service, queueConfiguration, poolMaxSize) {
-    this.service = service;
-    this.queueConfiguration = queueConfiguration;
+  constructor(
+    dependency: Dependency,
+    requestFunction: DependencyRequestFunction
+  ) {
+    this.requestFunction = requestFunction;
 
-    switch (queueConfiguration.type) {
+    switch (dependency.queue.type) {
       case "PriorityQueue":
-        this.queue = new PriorityQueue(queueConfiguration);
+        this.queue = new PriorityQueue(dependency.queue);
         break;
       default:
-        this.queue = new BoundedQueue(queueConfiguration);
+        this.queue = new BoundedQueue(dependency.queue);
     }
 
     this.pool = [];
-    this.poolMaxSize = poolMaxSize;
+    this.poolMaxSize = dependency.workers;
   }
 
-  add(request: DependencyRequest): Promise<DependencyResponse> {
-    const wasAdded = this.queue.add(request);
+  async fallback(request: Req): Promise<number> {
+    // call fallback, return value
+    return 200;
+  }
+
+  add(request: Req): Promise<DependencyResponse> {
+    const dependencyRequest: DependencyRequest = {
+      request,
+      response: new DeferredPromise<DependencyResponse>()
+    };
+    const wasAdded = this.queue.add(dependencyRequest);
     if (!wasAdded) {
-      return Promise.reject(new Error("Could not be added to the Queue"));
+      return Promise.reject(
+        new Error("Could not be added to the Queue. " + request.requestId)
+      );
     }
-    request.response = new DeferredPromise<DependencyResponse>();
 
     if (this.canWork()) {
       this.grabWork();
     }
 
-    return request.response;
+    return dependencyRequest.response;
   }
 
   private canWork() {
@@ -82,8 +106,7 @@ export class DependencyPool {
     //console.error("Working on Request");
     this.pool.push(request);
 
-    request
-      .requestFunction(request.service)
+    this.requestFunction(this.dependency.service)
       .then(response => {
         //console.error("Finished Working on Request");
         // complete the response by notifying the request that it has finished

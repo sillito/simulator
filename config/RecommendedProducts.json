@@ -1,0 +1,13 @@
+{
+  "name": "RecommendedProducts",
+  "port": 3102,
+
+  "type": "timed",
+  "timedResponseSettings": {
+    "mean": 20,
+    "std": 5,
+    "failureRate": 0.01,
+    "failureMean": 20,
+    "failureStd": 5
+  }
+}
