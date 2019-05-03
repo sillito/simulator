@@ -8,7 +8,7 @@
       "queue": {
         "maxSize": 5
       },
-      "workers": 2
+      "workers": 5
     }
   ],
   "max_tries": 1,

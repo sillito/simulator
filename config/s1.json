@@ -10,7 +10,8 @@
         "maxSize": 5,
         "priorityProperty": "value"
       },
-      "workers": 2
+      "workers": 5,
+      "fallback": "fallback#alwaysSucceed"
     }
   ],
   "max_tries": 1,

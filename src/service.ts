@@ -231,7 +231,6 @@ export async function callService(request: Req, service: string) {
       requestFunction: attemptRequestToService
     });*/
   } catch (err) {
-    //console.error("----", err);
     // A rejection can occur while waiting for the dependency
     recordMetrics({
       requestId: request.requestId,
@@ -242,12 +241,9 @@ export async function callService(request: Req, service: string) {
       fallback: true
     });
 
-    //console.error("qqqqq1", request.requestId);
     let x = await dependency.fallback(request);
-    //console.error("qqqqq2", request.requestId);
     return x;
   }
-  //console.error("jjjjjjjjjjjjjj");
 
   // call the actual service
   const { response, attempt } = dependencyResponse;

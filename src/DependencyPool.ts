@@ -3,6 +3,7 @@ import { Queue } from "./queues/Queue";
 import { BoundedQueue } from "./queues/BoundedQueue";
 import { PriorityQueue } from "./queues/PriorityQueue";
 import { Req } from "./service";
+import * as path from "path";
 
 // The Object type that is added to queues
 export type DependencyRequest = {
@@ -32,6 +33,7 @@ export type Dependency = {
 
   workers: number;
   queue: QueueConfig;
+  fallback: string;
 };
 type QueueConfig = {
   type: string;
@@ -46,15 +48,17 @@ type QueueConfig = {
 export class DependencyPool {
   dependency: Dependency;
   requestFunction: DependencyRequestFunction;
+  fallbackFunction: Function;
 
   queue: Queue<DependencyRequest>;
   pool: DependencyRequest[];
-  poolMaxSize: number;
+  workers: number;
 
   constructor(
     dependency: Dependency,
     requestFunction: DependencyRequestFunction
   ) {
+    this.dependency = dependency;
     this.requestFunction = requestFunction;
 
     switch (dependency.queue.type) {
@@ -66,12 +70,37 @@ export class DependencyPool {
     }
 
     this.pool = [];
-    this.poolMaxSize = dependency.workers;
+    this.workers = dependency.workers;
+    this.fallbackFunction = this.getFallbackFunction(dependency.fallback);
+    console.error("This service will depend on ", dependency);
+  }
+
+  private getFallbackFunction(fallback) {
+    if (!fallback) {
+      return undefined;
+    }
+    const file = fallback.split("#")[0];
+    const func = fallback.split("#")[1];
+    const fallbackPath = path.join(__dirname, file);
+    let target;
+    try {
+      target = require(fallbackPath);
+    } catch (err) {
+      throw new Error(`Could not find a fallback at ${fallbackPath}`);
+    }
+    if (typeof target[func] != "function") {
+      throw new Error(
+        `Could not load the fallback function (${fallback}) for this dependency.`
+      );
+    }
+    return target[func];
   }
 
   async fallback(request: Req): Promise<number> {
-    // call fallback, return value
-    return 200;
+    if (this.fallbackFunction) {
+      return this.fallbackFunction(this, request);
+    }
+    return 500;
   }
 
   add(request: Req): Promise<DependencyResponse> {
@@ -86,6 +115,8 @@ export class DependencyPool {
       );
     }
 
+    //console.error("XXXXXXXXXXX", this.canWork());
+
     if (this.canWork()) {
       this.grabWork();
     }
@@ -94,7 +125,7 @@ export class DependencyPool {
   }
 
   private canWork() {
-    return this.pool.length < this.poolMaxSize;
+    return this.pool.length <= this.workers;
   }
   private grabWork() {
     const first = this.queue.remove();
@@ -103,12 +134,11 @@ export class DependencyPool {
     }
   }
   private workOn(request: DependencyRequest) {
-    //console.error("Working on Request");
     this.pool.push(request);
-
     this.requestFunction(this.dependency.service)
       .then(response => {
-        //console.error("Finished Working on Request");
+        this;
+        //console.error("Finished Working on Request", request);
         // complete the response by notifying the request that it has finished
         request.response.resolve(response);
 
@@ -119,7 +149,7 @@ export class DependencyPool {
         this.grabWork();
       })
       .catch(err => {
-        //console.error("Error Working on Request");
+        //console.error("Error Working on Request", err);
         // complete the response by notifying the request that it has finished
         request.response.reject(err);
 
