@@ -2,7 +2,7 @@
   "json.schemas": [
     {
       "fileMatch": ["*.service.json"],
-      "url": "./config/serviceXXXXXX.schema.json"
+      "url": "./config/service.schema.json"
     }
   ]
 }
