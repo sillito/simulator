@@ -11,7 +11,22 @@
         "priorityProperty": "value"
       },
       "workers": 5,
-      "fallback": "fallback#alwaysSucceed"
+      "fallback": {
+        "type": "dependency",
+        "dependency": {
+          "service": "http://127.0.0.1:3004",
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 3,
+            "priorityProperty": "value"
+          },
+          "workers": 2,
+          "fallback": {
+            "type": "function",
+            "function": "fallback#alwaysFail"
+          }
+        }
+      }
     }
   ],
   "max_tries": 1,

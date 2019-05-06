@@ -16,6 +16,7 @@ echo [Saving experiment output to $DIR/]
 #
 echo [Starting services]
 node ./dist/service.js --config ../config/bork.json > $DIR/s0.metrics &
+node ./dist/service.js --config ../config/bork2.json > $DIR/s01.metrics &
 node ./dist/service.js --config ../config/s1.json > $DIR/s1.metrics &
 node ./dist/service.js --config ../config/s2.json > $DIR/s2.metrics &
 

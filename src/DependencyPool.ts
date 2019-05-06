@@ -33,7 +33,12 @@ export type Dependency = {
 
   workers: number;
   queue: QueueConfig;
-  fallback: string;
+  fallback: Fallback;
+};
+type Fallback = {
+  type: "function" | "dependency";
+  function?: string;
+  dependency?: Dependency;
 };
 type QueueConfig = {
   type: string;
@@ -71,11 +76,68 @@ export class DependencyPool {
 
     this.pool = [];
     this.workers = dependency.workers;
-    this.fallbackFunction = this.getFallbackFunction(dependency.fallback);
-    console.error("This service will depend on ", dependency);
+
+    this.createFallback(dependency.fallback);
   }
 
-  private getFallbackFunction(fallback) {
+  /**
+   * A fallback can be either a function or a dependency.
+   * Case 1) Function:
+   *  Parse `function` as filePath#functionName.
+   *  Function must exist as async function(service, request): Promise<number>
+   *
+   * Case 2) Dependency
+   *
+   *
+   */
+  private createFallback(fallback: Fallback) {
+    switch (fallback.type) {
+      case "function":
+        this.fallbackFunction = this.parseFallbackFunction(fallback.function);
+        break;
+      case "dependency":
+        this.fallbackFunction = this.createDependencyFallbackFunction(
+          fallback.dependency
+        );
+        break;
+    }
+  }
+
+  private createDependencyFallbackFunction(
+    fallbackDependency: Dependency
+  ): Function {
+    const fallbackPool = new DependencyPool(
+      fallbackDependency,
+      this.requestFunction
+    );
+
+    return async function(service, request): Promise<number> {
+      // here is place for circuit breaker
+
+      // Queue
+      let fallbackResponse: DependencyResponse;
+      try {
+        fallbackResponse = await fallbackPool.add(request);
+      } catch (err) {
+        let x = await fallbackPool.fallback(request);
+        return x;
+      }
+
+      // call the actual service
+      const { response, attempt } = fallbackResponse;
+      let status = response.statusCode;
+
+      // Account for fallback, if execution fails.
+      const shouldFallback = fallbackDependency.fallback && status == 500;
+
+      if (shouldFallback) {
+        status = await fallbackPool.fallback(request);
+      }
+
+      return response.statusCode;
+    };
+  }
+  private parseFallbackFunction(fallback): Function {
     if (!fallback) {
       return undefined;
     }

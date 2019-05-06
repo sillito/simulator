@@ -218,18 +218,7 @@ export async function callService(request: Req, service: string) {
   let dependencyResponse: DependencyResponse;
   const dependency: DependencyPool = dependencies[service];
   try {
-    //log(INFO, "      add pool");
-    //log(INFO, "    " + JSON.stringify(dependencies));
-    //log(INFO, "    " + JSON.stringify(service));
-    //console.error("XXXXXX", dependency, request);
-
     dependencyResponse = await dependency.add(request);
-    //console.error("----");
-    /*{
-      request: request,
-      service: `${service}/?${querystring.stringify(request)}`,
-      requestFunction: attemptRequestToService
-    });*/
   } catch (err) {
     // A rejection can occur while waiting for the dependency
     recordMetrics({

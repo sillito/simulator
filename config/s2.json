@@ -8,7 +8,11 @@
       "queue": {
         "maxSize": 5
       },
-      "workers": 5
+      "workers": 5,
+      "fallback": {
+        "type": "function",
+        "function": "fallback#alwaysSucceed"
+      }
     }
   ],
   "max_tries": 1,

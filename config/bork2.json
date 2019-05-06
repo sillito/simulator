@@ -1,10 +1,10 @@
 {
   "name": "bork",
   "type": "timed",
-  "port": 3000,
+  "port": 3004,
   "timedResponseSettings": {
     "failureRate": 0,
-    "mean": 20,
-    "std": 5
+    "failureMean": 20,
+    "failureStd": 5
   }
 }
