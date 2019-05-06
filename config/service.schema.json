@@ -1,0 +1,109 @@
+{
+  "$id": "byu/se-lab/service.schema.json",
+  "$schema": "http://json-schema.org/draft-07/schema",
+  "title": "Service Configuration",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "A name for this service",
+      "examples": ["Product Service", "API Gateway"],
+      "minLength": 2,
+      "maxLength": 50
+    },
+    "hostname": {
+      "type": "string",
+      "description": "The host that the service will reside at.",
+      "minLength": 2,
+      "maxLength": 50
+    },
+    "port": {
+      "type": "number",
+      "description": "The port that the service will reside on."
+    },
+    "type": {
+      "type": "string",
+      "description": "The type of service. Timed returns responses based on a distribution. Serial and Concurrent are complex services that have dependencies that are called in the specified pattern.",
+      "enum": ["timed", "serial", "concurrent"]
+    },
+
+    "dependencies": {
+      "type": "array",
+      "description": "The type of service. Timed returns responses based on a distribution. Serial and Concurrent are complex services that have dependencies that are called in the specified pattern.",
+      "items": {
+        "$ref": "#/definitions/Dependency"
+      }
+    },
+    "timedResponseSettings": {
+      "$ref": "#/definitions/TimedSettings"
+    }
+  },
+  "required": ["name", "type"],
+  "additionalProperties": false,
+  "definitions": {
+    "Dependency": {
+      "type": "object",
+      "description": "The dependencies that this service relies on and their configuration",
+      "properties": {
+        "service": {
+          "type": "string",
+          "description": "The URL that the dependency is located at",
+          "examples": ["http://127.0.0.1:3000"],
+          "minLength": 2,
+          "maxLength": 200
+        },
+        "workers": {
+          "type": "number",
+          "description": "The number of workers in the pool working on the queue."
+        },
+        "queue": {
+          "type": "object",
+          "description": "Data events that this app can subscribe to and process",
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "The type of queue to use",
+              "examples": ["PriorityQueue"],
+              "minLength": 2,
+              "maxLength": 50
+            },
+            "maxSize": {
+              "type": "number",
+              "description": "The upper bound of the queue"
+            }
+          },
+          "required": ["type", "maxSize"],
+          "additionalProperties": true
+        },
+        "fallback": {
+          "type": "object",
+          "description": "",
+          "properties": {
+            "type": {
+              "type": "string",
+              "description": "The type of queue to use",
+              "enum": ["function", "dependency"]
+            },
+            "function": {
+              "type": "string",
+              "description": "The fallback function to be called"
+            },
+            "dependency": {
+              "$ref": "#/definitions/Dependency"
+            }
+          },
+          "required": ["type"]
+        }
+      },
+      "required": ["service", "workers", "queue", "fallback"]
+    },
+    "TimedSettings": {
+      "type": "object",
+      "description": "Mappings used by the app to map data",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9_-]+$"
+      }
+    }
+  }
+}

@@ -17,21 +17,14 @@
 import { DeferredPromise } from "./DeferredPromise";
 import {
   DependencyPool,
-  DependencyRequest,
   DependencyResponse,
-  DependencyRequestFunction
+  Dependency
 } from "./DependencyPool";
 import * as querystring from "querystring";
 
 const http = require("http");
 const url = require("url");
 const seedrandom = require("seedrandom");
-
-type Dependency = {
-  service: string;
-  queue: any;
-  poolMaxSize?: number;
-};
 
 // Properties that can be passed along to other services via querystring
 export type Req = {
@@ -42,14 +35,16 @@ export type Req = {
 type Configuration = {
   name: string;
   hostname: string;
-  type: string;
+  type: "timed" | "serial" | "concurrent";
   port: number;
   log_level: number;
-  mean: number;
-  std: number;
-  failure_rate: number;
-  failure_mean: number;
-  failure_std: number;
+  timedResponseSettings: {
+    mean: number;
+    std: number;
+    failureRate: number;
+    failureMean: number;
+    failureStd: number;
+  };
   response_size: number;
   failure_response_size: number;
   cache_hit_rate: number;
@@ -88,12 +83,14 @@ function loadConfiguration() {
     type: "timed",
     port: 3000,
     log_level: 3,
-    mean: 200,
-    std: 50,
+    timedResponseSettings: {
+      mean: 200,
+      std: 50,
+      failureRate: 0,
+      failureMean: 100,
+      failureStd: 25
+    },
     response_size: 1024,
-    failure_rate: 0,
-    failure_mean: 100,
-    failure_std: 25,
     failure_response_size: 512,
     cache_hit_rate: 0,
     dependencies: [],
@@ -117,9 +114,8 @@ function loadConfiguration() {
 
   config.dependencies.forEach(dep => {
     dependencies[dep.service] = new DependencyPool(
-      dep.service,
-      dep.queue,
-      dep.poolMaxSize || 10
+      dep,
+      attemptRequestToService
     );
   });
 
@@ -174,13 +170,14 @@ const server = http.createServer(async (req, res) => {
   //
 
   if (config.type === "timed") {
-    if (weightedCoinToss(config.failure_rate)) {
+    const timedConfig = config.timedResponseSettings;
+    if (weightedCoinToss(timedConfig.failureRate)) {
       waitTime = parseInt(
-        normalSample(config.failure_mean, config.failure_std)
+        normalSample(timedConfig.failureMean, timedConfig.failureStd)
       );
       setTimeout(respond, waitTime, res, 500);
     } else {
-      waitTime = parseInt(normalSample(config.mean, config.std));
+      waitTime = parseInt(normalSample(timedConfig.mean, timedConfig.std));
       setTimeout(respond, waitTime, res, 200);
     }
   } else {
@@ -221,14 +218,7 @@ export async function callService(request: Req, service: string) {
   let dependencyResponse: DependencyResponse;
   const dependency: DependencyPool = dependencies[service];
   try {
-    //log(INFO, "      add pool");
-    //log(INFO, "    " + JSON.stringify(dependencies));
-    //log(INFO, "    " + JSON.stringify(service));
-    dependencyResponse = await dependency.add({
-      request: request,
-      service: `${service}/?${querystring.stringify(request)}`,
-      requestFunction: attemptRequestToService
-    });
+    dependencyResponse = await dependency.add(request);
   } catch (err) {
     // A rejection can occur while waiting for the dependency
     recordMetrics({
@@ -240,18 +230,19 @@ export async function callService(request: Req, service: string) {
       fallback: true
     });
 
-    return await fallback(request, service);
+    let x = await dependency.fallback(request);
+    return x;
   }
 
   // call the actual service
-  const { response, attempt } = dependencyResponse; //attemptRequestToService(serviceURL);
+  const { response, attempt } = dependencyResponse;
   let status = response.statusCode;
 
   // Account for fallback, if execution fails.
   const shouldFallback = config.fallback && status == 500;
 
   if (shouldFallback) {
-    status = await fallback(request, service);
+    status = await dependency.fallback(request);
   }
 
   // record metrics
@@ -261,14 +252,10 @@ export async function callService(request: Req, service: string) {
     status,
     tries: attempt,
     dependencyTime: Date.now() - startTime,
-    fallback
+    fallback: shouldFallback
   });
 
   return response.statusCode;
-}
-
-async function fallback(request: Req, serviceURL: string): Promise<number> {
-  return 200;
 }
 
 async function attemptRequestToService(

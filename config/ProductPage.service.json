@@ -1,0 +1,42 @@
+{
+  "name": "ProductPage",
+  "port": 3100,
+
+  "type": "concurrent",
+  "dependencies": [
+    {
+      "service": "http://127.0.0.1:3101",
+      "workers": 5,
+
+      "queue": {
+        "type": "PriorityQueue",
+        "maxSize": 5,
+        "priorityProperty": "value"
+      }
+    },
+    {
+      "service": "http://127.0.0.1:3102",
+      "workers": 5,
+
+      "queue": {
+        "type": "PriorityQueue",
+        "maxSize": 5,
+        "priorityProperty": "value"
+      },
+
+      "fallback": "fallback#alwaysSucceed"
+    },
+    {
+      "service": "http://127.0.0.1:3103",
+      "workers": 5,
+
+      "queue": {
+        "type": "PriorityQueue",
+        "maxSize": 5,
+        "priorityProperty": "value"
+      }
+    }
+  ],
+
+  "timeout": 1000
+}

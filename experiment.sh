@@ -16,6 +16,7 @@ echo [Saving experiment output to $DIR/]
 #
 echo [Starting services]
 node ./dist/service.js --config ../config/bork.json > $DIR/s0.metrics &
+node ./dist/service.js --config ../config/bork2.json > $DIR/s01.metrics &
 node ./dist/service.js --config ../config/s1.json > $DIR/s1.metrics &
 node ./dist/service.js --config ../config/s2.json > $DIR/s2.metrics &
 
@@ -26,8 +27,8 @@ sleep 2 # give services time to start up before running the experiment
 # Use ab command to execute the experiment
 #
 echo [Running experiment]
-wrk -t 2 -c 100 -d 15s -R 300 --timeout 15s -L http://127.0.0.1:3001/ > $DIR/wk1.output
-wrk -t 2 -c 100 -d 15s -R 300 --timeout 15s -L http://127.0.0.1:3002/ > $DIR/wk2.output
+wrk -t 2 -c 150 -d 15s -R 100 --timeout 15s -L http://127.0.0.1:3001/ > $DIR/wk1.output
+wrk -t 2 -c 150 -d 15s -R 100 --timeout 15s -L http://127.0.0.1:3002/ > $DIR/wk2.output
 
 #
 # convert the metrics logs to csv files
