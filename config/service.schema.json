@@ -36,6 +36,9 @@
     },
     "timedResponseSettings": {
       "$ref": "#/definitions/TimedSettings"
+    },
+    "timeout": {
+      "type": "number"
     }
   },
   "required": ["name", "type"],
@@ -95,7 +98,7 @@
           "required": ["type"]
         }
       },
-      "required": ["service", "workers", "queue", "fallback"]
+      "required": ["service", "workers", "queue"]
     },
     "TimedSettings": {
       "type": "object",

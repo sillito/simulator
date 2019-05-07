@@ -32,7 +32,7 @@ export type Req = {
   value?: number;
 };
 
-type Configuration = {
+export type ServiceConfiguration = {
   name: string;
   hostname: string;
   type: "timed" | "serial" | "concurrent";
@@ -56,7 +56,7 @@ type Configuration = {
 };
 
 // The Server configuration, passed in through command line and defaulted.
-let config: Configuration;
+let config: ServiceConfiguration;
 
 // A seeded random number generator
 let rng;
@@ -77,7 +77,7 @@ function loadConfiguration() {
       config: "./service.example.json"
     }
   });
-  const defaultConfig: Configuration = {
+  const defaultConfig: ServiceConfiguration = {
     name: "bork",
     hostname: "127.0.0.1",
     type: "timed",
@@ -99,7 +99,7 @@ function loadConfiguration() {
     seed: "secret",
     fallback: false
   };
-  let specifiedConfig: Configuration;
+  let specifiedConfig: ServiceConfiguration;
   try {
     specifiedConfig = require(args.config);
   } catch (err) {
