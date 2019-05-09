@@ -18,8 +18,12 @@
       }
     },
     {
+      "name": "RecommendedProductsPrime",
+      "file": "../config/RecommendedProductsPrime.service.json"
+    },
+    {
       "name": "ProductInformation",
-      "file": "../config/ProductInformation.service.json"
+      "file": "../config/ProductInformation.json"
     },
     {
       "name": "CustomerReviews",
@@ -42,7 +46,8 @@
     "type": "concurrent",
     "dependencies": [
       {
-        "service": "http://127.0.0.1:3101",
+        "name": "ProductInformation",
+        "__service": "http://127.0.0.1:3101",
         "workers": 5,
 
         "queue": {
@@ -65,7 +70,8 @@
         "fallback": {
           "type": "dependency",
           "dependency": {
-            "service": "http://127.0.0.1:3104",
+            "name": "RecommendedProductsPrime",
+            "__service": "http://127.0.0.1:3104",
             "workers": 5,
 
             "queue": {
@@ -82,7 +88,8 @@
         }
       },
       {
-        "service": "http://127.0.0.1:3103",
+        "name": "CustomerReviews",
+        "__service": "http://127.0.0.1:3103",
         "workers": 5,
 
         "queue": {

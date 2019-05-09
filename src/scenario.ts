@@ -1,4 +1,8 @@
 import { ServiceConfiguration } from "./service";
+import { spawn } from "child_process";
+import * as fs from "fs";
+const concurrently = require("concurrently");
+
 const args = require("minimist")(process.argv.slice(2), {
   default: {
     config: "./scenario.example.json"
@@ -61,6 +65,7 @@ scenarioConfiguration.endpoint.dependencies.forEach(dep => {
     if (matchedService) {
       dep.service =
         matchedService.hostname || "http://127.0.0.1:" + matchedService.port;
+      console.log(`Matched ${dep.name} to ${dep.service}`);
     } else {
       throw new Error(
         `Could not find a matching service with name ${
@@ -71,29 +76,102 @@ scenarioConfiguration.endpoint.dependencies.forEach(dep => {
   }
 });
 
-const commands = services
-  .concat([scenarioConfiguration.endpoint])
-  .map(s => "node ./dist/service.js --configJSON " + JSON.stringify(s));
-
-const concurrently = require("concurrently");
-concurrently(commands).then(runExperiment, async err => {
-  throw new Error("Could not start services: " + err);
+process.on("exit", function() {
+  finish();
 });
+const childProcesses = [];
+run();
 
-async function runExperiment() {
-  concurrently(commands).then(gatherMetrics, async err => {
-    throw new Error("Could not start wrk: " + err);
+async function run() {
+  console.log("*** Prepping Folders ***");
+  const folder = createResultsFolder();
+
+  console.log("*** Starting Services ***");
+  await startServices(folder).catch(err => {
+    console.error("Could not start services: " + err);
+    return process.exit(0);
+  });
+
+  await console.log("*** Running WRK ***");
+  await runExperiment(folder).catch(err => {
+    console.error("Could not start wrk: " + err);
+    return process.exit(0);
+  });
+
+  console.log("*** Processing Metrics ***");
+  await gatherMetrics(folder).catch(err => {
+    console.error("Could not start gather metrics: " + err);
+    return process.exit(0);
+  });
+
+  process.exit(0);
+}
+
+function createResultsFolder() {
+  const date = new Date().toISOString().substring(0, 10);
+  var dir = `./results-${date}`;
+
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir);
+  }
+  return dir;
+}
+
+async function startServices(outputFolder) {
+  services.concat([scenarioConfiguration.endpoint]).forEach(s => {
+    const logStream = fs.createWriteStream(
+      `${outputFolder}/${s.name}.metrics`,
+      {
+        flags: "a"
+      }
+    );
+    const node = spawn("node", [
+      "./dist/service.js",
+      "--configJSON",
+      JSON.stringify(s).replace(/"/g, '\\"')
+    ]);
+    childProcesses.push(node);
+    node.stdout.pipe(logStream);
+    node.stderr.pipe(process.stderr);
+
+    node.on("close", function(code) {
+      console.log("child process exited with code " + code);
+    });
+  });
+  return sleep(2000);
+}
+
+async function runExperiment(outputFolder) {
+  const command =
+    "wrk -t 2 -c 150 -d 15s -R 100 --timeout 15s -L " +
+    (scenarioConfiguration.endpoint.hostname || "http://127.0.0.1") +
+    ":" +
+    scenarioConfiguration.endpoint.port +
+    ` > ${outputFolder}/wk1.output`;
+  console.error(command);
+  return concurrently([command], {
+    prefix: "WRK",
+    prefixLength: 15,
+    killOthers: ["failure", "success"]
   });
 }
-async function gatherMetrics() {
-  concurrently(["wrk -t 2 -c 150 -d 15s -R 100 --timeout 15s -L "]).then(
-    finish,
-    async err => {
-      throw new Error("Could not start gather metrics: " + err);
-    }
+async function gatherMetrics(outputFolder) {
+  return concurrently(
+    [
+      `node summarize-metrics.js --trial 1 < ${outputFolder}/ProductPage.metrics`
+    ],
+    { prefix: "none", prefixLength: 0, killOthers: ["failure", "success"] }
   );
 }
 
 async function finish() {
-  process.exit(0);
+  console.log(`*** Killing ${childProcesses.length} Child Processes ***`);
+  childProcesses.forEach(c => {
+    let a = c.kill("SIGTERM");
+    console.log(" --> ", a);
+  });
+}
+
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
