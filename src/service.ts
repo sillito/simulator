@@ -32,7 +32,7 @@ export type Req = {
   value?: number;
 };
 
-type Configuration = {
+export type ServiceConfiguration = {
   name: string;
   hostname: string;
   type: "timed" | "serial" | "concurrent";
@@ -56,7 +56,7 @@ type Configuration = {
 };
 
 // The Server configuration, passed in through command line and defaulted.
-let config: Configuration;
+let config: ServiceConfiguration;
 
 // A seeded random number generator
 let rng;
@@ -74,10 +74,11 @@ function loadConfiguration() {
   // command line arguments take in a single config file for this service
   const args = require("minimist")(process.argv.slice(2), {
     default: {
-      config: "./service.example.json"
+      config: null,
+      configJSON: null
     }
   });
-  const defaultConfig: Configuration = {
+  const defaultConfig: ServiceConfiguration = {
     name: "bork",
     hostname: "127.0.0.1",
     type: "timed",
@@ -99,14 +100,27 @@ function loadConfiguration() {
     seed: "secret",
     fallback: false
   };
-  let specifiedConfig: Configuration;
-  try {
-    specifiedConfig = require(args.config);
-  } catch (err) {
+  let specifiedConfig: ServiceConfiguration;
+  if (!args.config && !args.configJSON) {
     throw new Error(
-      `Invalid Configuration File Path Specified: ${args.config}`
+      `No Configuration was specified for the ${args.name} service.`
     );
   }
+  if (args.config) {
+    try {
+      specifiedConfig = require(args.config);
+    } catch (err) {
+      throw new Error(
+        `Invalid Configuration File Path (${args.config}) specified for ${
+          args.name
+        }`
+      );
+    }
+  } else if (args.configJSON) {
+    // unescape. Escaping used just for shell which doesn't like double quotes.
+    specifiedConfig = JSON.parse(args.configJSON.replace(/\\"/g, '"'));
+  }
+
   config = {
     ...defaultConfig,
     ...specifiedConfig
@@ -263,6 +277,10 @@ async function attemptRequestToService(
   attempt = 0,
   error = null
 ): Promise<DependencyResponse> {
+  if (serviceURL.includes(":80")) {
+    console.error("BAD SERVICE", serviceURL);
+  }
+
   attempt++;
   if (attempt > config.max_tries) {
     return { response: { statusCode: 500 }, attempt: config.max_tries }; // TODO: what should we do when we hit max_tries?
@@ -437,5 +455,7 @@ if (require.main === module) {
   server.listen(config.port, config.hostname, () => {
     log(INFO, `Service running at http://${config.hostname}:${config.port}/`);
     log(DEBUG, `With config ${JSON.stringify(config)}`);
+    process.on("SIGTERM", () => process.exit());
+    process.on("SIGINT", () => process.exit());
   });
 }

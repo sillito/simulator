@@ -29,6 +29,7 @@ export type DependencyResponse = {
 };
 
 export type Dependency = {
+  name: string;
   service: string;
 
   workers: number;
@@ -91,6 +92,10 @@ export class DependencyPool {
    *
    */
   private createFallback(fallback: Fallback) {
+    if (!fallback) {
+      return;
+    }
+
     switch (fallback.type) {
       case "function":
         this.fallbackFunction = this.parseFallbackFunction(fallback.function);

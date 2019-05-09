@@ -1,0 +1,105 @@
+{
+  "description": "Service with Dependency on Different System",
+  "autoAssign": {
+    "port": true
+  },
+  "services": [
+    {
+      "name": "RecommendedProducts",
+      "port": 3102,
+
+      "type": "timed",
+      "timedResponseSettings": {
+        "mean": 20,
+        "std": 5,
+        "failureRate": 0.01,
+        "failureMean": 20,
+        "failureStd": 5
+      }
+    },
+    {
+      "name": "RecommendedProductsPrime",
+      "file": "../config/RecommendedProductsPrime.service.json"
+    },
+    {
+      "name": "ProductInformation",
+      "file": "../config/ProductInformation.json"
+    },
+    {
+      "name": "CustomerReviews",
+      "port": 3103,
+
+      "type": "timed",
+      "timedResponseSettings": {
+        "mean": 20,
+        "std": 5,
+        "failureRate": 0.01,
+        "failureMean": 20,
+        "failureStd": 5
+      }
+    }
+  ],
+  "endpoint": {
+    "name": "ProductPage",
+    "port": 3098,
+
+    "type": "concurrent",
+    "dependencies": [
+      {
+        "name": "ProductInformation",
+        "__service": "http://127.0.0.1:3101",
+        "workers": 5,
+
+        "queue": {
+          "type": "PriorityQueue",
+          "maxSize": 5,
+          "priorityProperty": "value"
+        }
+      },
+      {
+        "name": "RecommendedProducts",
+        "__service": "http://127.0.0.1:3102",
+        "workers": 5,
+
+        "queue": {
+          "type": "PriorityQueue",
+          "maxSize": 5,
+          "priorityProperty": "value"
+        },
+
+        "fallback": {
+          "type": "dependency",
+          "dependency": {
+            "name": "RecommendedProductsPrime",
+            "__service": "http://127.0.0.1:3104",
+            "workers": 5,
+
+            "queue": {
+              "type": "PriorityQueue",
+              "maxSize": 5,
+              "priorityProperty": "value"
+            },
+
+            "fallback": {
+              "type": "function",
+              "function": "fallback#alwaysFail"
+            }
+          }
+        }
+      },
+      {
+        "name": "CustomerReviews",
+        "__service": "http://127.0.0.1:3103",
+        "workers": 5,
+
+        "queue": {
+          "type": "PriorityQueue",
+          "maxSize": 5,
+          "priorityProperty": "value"
+        }
+      }
+    ],
+
+    "timeout": 1000
+  }
+}
