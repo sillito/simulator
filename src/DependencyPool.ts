@@ -36,7 +36,7 @@ export type Dependency = {
   queue: QueueConfig;
   fallback: Fallback;
 };
-type Fallback = {
+export type Fallback = {
   type: "function" | "dependency";
   function?: string;
   dependency?: Dependency;

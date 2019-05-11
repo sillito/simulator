@@ -1,13 +1,8 @@
 import { ServiceConfiguration } from "./service";
+import { Fallback } from "./DependencyPool";
 import { spawn } from "child_process";
 import * as fs from "fs";
-const concurrently = require("concurrently");
-
-const args = require("minimist")(process.argv.slice(2), {
-  default: {
-    config: "./scenario.example.json"
-  }
-});
+import * as concurrently from "concurrently";
 
 type LoadableServiceConfiguration = ServiceConfiguration & { file: string };
 
@@ -17,20 +12,10 @@ type ScenarioConfiguration = {
     port: boolean;
   };
   services: LoadableServiceConfiguration[];
-  endpoint: LoadableServiceConfiguration;
+  endpoints: LoadableServiceConfiguration[];
 };
 
-let scenarioConfiguration: ScenarioConfiguration;
-try {
-  scenarioConfiguration = require(args.config);
-} catch (err) {
-  throw new Error(
-    `Invalid Scenario Configuration File Path Specified: ${args.config}`
-  );
-}
-
-let portStarting = 3000;
-const services = scenarioConfiguration.services.map(s => {
+function loadServiceConfiguration(s) {
   // if referring to a configuration file, load it
   if (s.file) {
     let configFile: ServiceConfiguration;
@@ -49,19 +34,40 @@ const services = scenarioConfiguration.services.map(s => {
 
     delete s.file;
   }
-
-  // auto assign stuff, so we can refer to names instead of host/url in dependencies if needed
-  if (scenarioConfiguration.autoAssign.port) {
-    s.port = ++portStarting;
-  }
-
   return s;
-});
+}
 
-// update the endpoints dependencies if needed
-scenarioConfiguration.endpoint.dependencies.forEach(dep => {
+function matchServiceDependencies(
+  service: ServiceConfiguration,
+  allServices: ServiceConfiguration[]
+) {
+  if (!service.dependencies) return;
+
+  service.dependencies.forEach(dep => {
+    matchService(dep, allServices);
+    matchFallbacks(dep.fallback, allServices);
+  });
+}
+
+function matchFallbacks(
+  fallback: Fallback,
+  allServices: ServiceConfiguration[]
+) {
+  if (!fallback) {
+    return;
+  }
+  if (fallback.dependency) {
+    matchService(fallback.dependency, allServices);
+    return matchFallbacks(fallback.dependency.fallback, allServices);
+  }
+}
+
+function matchService(
+  dep: { name: string; service: string },
+  allServices: ServiceConfiguration[]
+) {
   if (dep.name) {
-    const matchedService = services.find(s => s.name == dep.name);
+    const matchedService = allServices.find(s => s.name == dep.name);
     if (matchedService) {
       dep.service =
         matchedService.hostname || "http://127.0.0.1:" + matchedService.port;
@@ -74,7 +80,45 @@ scenarioConfiguration.endpoint.dependencies.forEach(dep => {
       );
     }
   }
-});
+}
+
+function loadConfiguration() {
+  const args = require("minimist")(process.argv.slice(2), {
+    default: {
+      config: "./scenario.example.json"
+    }
+  });
+
+  let scenarioConfiguration: ScenarioConfiguration;
+  try {
+    scenarioConfiguration = require(args.config);
+  } catch (err) {
+    throw new Error(
+      `Invalid Scenario Configuration File Path Specified: ${args.config}`
+    );
+  }
+
+  const services = scenarioConfiguration.services.map(s =>
+    loadServiceConfiguration(s)
+  );
+  const endpoints = scenarioConfiguration.endpoints.map(e =>
+    loadServiceConfiguration(e)
+  );
+  const allServices = services.concat(endpoints);
+
+  // auto assign stuff, so we can refer to names instead of host/url in dependencies if needed
+  let portStarting = 3000;
+  allServices.forEach(s => {
+    if (scenarioConfiguration.autoAssign.port) {
+      s.port = ++portStarting;
+    }
+  });
+
+  // match service dependencies with other services by name.
+  allServices.forEach(s => matchServiceDependencies(s, allServices));
+
+  return { allServices, services, endpoints };
+}
 
 process.on("exit", function() {
   finish();
@@ -85,21 +129,22 @@ run();
 async function run() {
   console.log("*** Prepping Folders ***");
   const folder = createResultsFolder();
+  const { allServices, services, endpoints } = loadConfiguration();
 
   console.log("*** Starting Services ***");
-  await startServices(folder).catch(err => {
+  await startServices(allServices, folder).catch(err => {
     console.error("Could not start services: " + err);
     return process.exit(0);
   });
 
   await console.log("*** Running WRK ***");
-  await runExperiment(folder).catch(err => {
+  await runExperiment(endpoints, folder).catch(err => {
     console.error("Could not start wrk: " + err);
     return process.exit(0);
   });
 
   console.log("*** Processing Metrics ***");
-  await gatherMetrics(folder).catch(err => {
+  await gatherMetrics(endpoints, folder).catch(err => {
     console.error("Could not start gather metrics: " + err);
     return process.exit(0);
   });
@@ -117,10 +162,14 @@ function createResultsFolder() {
   return dir;
 }
 
-async function startServices(outputFolder) {
-  services.concat([scenarioConfiguration.endpoint]).forEach(s => {
+function sanitizeServiceName(name) {
+  return name.replace(/ /g, "_").replace(/\W/g, "");
+}
+
+async function startServices(allServices, outputFolder) {
+  allServices.forEach(s => {
     const logStream = fs.createWriteStream(
-      `${outputFolder}/${s.name}.metrics`,
+      `${outputFolder}/${sanitizeServiceName(s.name)}.metrics`,
       {
         flags: "a"
       }
@@ -141,27 +190,32 @@ async function startServices(outputFolder) {
   return sleep(2000);
 }
 
-async function runExperiment(outputFolder) {
-  const command =
-    "wrk -t 2 -c 150 -d 15s -R 100 --timeout 15s -L " +
-    (scenarioConfiguration.endpoint.hostname || "http://127.0.0.1") +
-    ":" +
-    scenarioConfiguration.endpoint.port +
-    ` > ${outputFolder}/wk1.output`;
-  console.error(command);
-  return concurrently([command], {
+async function runExperiment(endpoints, outputFolder) {
+  const commands = endpoints.map((e, index) => {
+    const wrk = "wrk -t 2 -c 150 -d 15s -R 100 --timeout 15s -L ";
+    const host = e.hostname || "http://127.0.0.1";
+    const filename = sanitizeServiceName(e.name);
+    const output = ` > ${outputFolder}/${filename}.wrk.output`;
+    return wrk + host + ":" + e.port + output;
+  });
+  console.error(commands);
+  return concurrently(commands, {
     prefix: "WRK",
     prefixLength: 15,
     killOthers: ["failure", "success"]
   });
 }
-async function gatherMetrics(outputFolder) {
-  return concurrently(
-    [
-      `node summarize-metrics.js --trial 1 < ${outputFolder}/ProductPage.metrics`
-    ],
-    { prefix: "none", prefixLength: 0, killOthers: ["failure", "success"] }
+async function gatherMetrics(endpoints, outputFolder) {
+  const commands = endpoints.map(
+    (e, index) =>
+      `node summarize-metrics.js --trial ${index +
+        1} < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
   );
+  return concurrently(commands, {
+    prefix: "none",
+    prefixLength: 0,
+    killOthers: ["failure", "success"]
+  });
 }
 
 async function finish() {

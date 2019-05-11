@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "build:watch": "tsc -w --preserveWatchOutput",
-    "start:dev": "concurrently -p SERVICE \"npm run build:watch\" nodemon",
+    "start:scenario": "node ./dist/scenario.js --config ../config/scenario.example.json",
     "test": "mocha -S -r ts-node/register $(find ./test -name *.test.ts)"
   },
   "keywords": [],
