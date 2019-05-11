@@ -39,67 +39,173 @@
       }
     }
   ],
-  "endpoint": {
-    "name": "ProductPage",
-    "port": 3098,
+  "endpoints": [
+    {
+      "name": "ProductPage - Dependency Fallback on Another System",
 
-    "type": "concurrent",
-    "dependencies": [
-      {
-        "name": "ProductInformation",
-        "__service": "http://127.0.0.1:3101",
-        "workers": 5,
+      "type": "concurrent",
+      "dependencies": [
+        {
+          "name": "ProductInformation",
+          "workers": 5,
 
-        "queue": {
-          "type": "PriorityQueue",
-          "maxSize": 5,
-          "priorityProperty": "value"
-        }
-      },
-      {
-        "name": "RecommendedProducts",
-        "__service": "http://127.0.0.1:3102",
-        "workers": 5,
-
-        "queue": {
-          "type": "PriorityQueue",
-          "maxSize": 5,
-          "priorityProperty": "value"
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
         },
+        {
+          "name": "RecommendedProducts",
+          "workers": 5,
 
-        "fallback": {
-          "type": "dependency",
-          "dependency": {
-            "name": "RecommendedProductsPrime",
-            "__service": "http://127.0.0.1:3104",
-            "workers": 5,
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          },
 
-            "queue": {
-              "type": "PriorityQueue",
-              "maxSize": 5,
-              "priorityProperty": "value"
-            },
+          "fallback": {
+            "type": "dependency",
+            "dependency": {
+              "name": "RecommendedProductsPrime",
+              "__service": "http://127.0.0.1:3104",
+              "workers": 5,
 
-            "fallback": {
-              "type": "function",
-              "function": "fallback#alwaysFail"
+              "queue": {
+                "type": "PriorityQueue",
+                "maxSize": 5,
+                "priorityProperty": "value"
+              },
+
+              "fallback": {
+                "type": "function",
+                "function": "fallback#alwaysFail"
+              }
             }
           }
-        }
-      },
-      {
-        "name": "CustomerReviews",
-        "__service": "http://127.0.0.1:3103",
-        "workers": 5,
+        },
+        {
+          "name": "CustomerReviews",
+          "__service": "http://127.0.0.1:3103",
+          "workers": 5,
 
-        "queue": {
-          "type": "PriorityQueue",
-          "maxSize": 5,
-          "priorityProperty": "value"
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
         }
-      }
-    ],
+      ],
 
-    "timeout": 1000
-  }
+      "timeout": 1000
+    },
+    {
+      "name": "ProductPage - Dependency Fallback on Same System",
+
+      "type": "concurrent",
+      "dependencies": [
+        {
+          "name": "ProductInformation",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
+        },
+        {
+          "name": "RecommendedProducts",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          },
+
+          "fallback": {
+            "type": "dependency",
+            "dependency": {
+              "name": "RecommendedProducts",
+              "workers": 5,
+
+              "queue": {
+                "type": "PriorityQueue",
+                "maxSize": 5,
+                "priorityProperty": "value"
+              },
+
+              "fallback": {
+                "type": "function",
+                "function": "fallback#alwaysFail"
+              }
+            }
+          }
+        },
+        {
+          "name": "CustomerReviews",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
+        }
+      ],
+
+      "timeout": 1000
+    },
+    {
+      "name": "ProductPage - Multiple Dependencies on Same System",
+
+      "type": "concurrent",
+      "dependencies": [
+        {
+          "name": "ProductInformation",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
+        },
+        {
+          "name": "RecommendedProducts",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
+        },
+        {
+          "name": "CustomerReviews",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
+        },
+        {
+          "name": "CustomerReviews",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 5,
+            "priorityProperty": "value"
+          }
+        }
+      ],
+
+      "timeout": 1000
+    }
+  ]
 }
