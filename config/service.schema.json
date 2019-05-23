@@ -98,7 +98,7 @@
           "required": ["type"]
         }
       },
-      "required": ["service", "workers", "queue"]
+      "required": ["workers", "queue"]
     },
     "TimedSettings": {
       "type": "object",

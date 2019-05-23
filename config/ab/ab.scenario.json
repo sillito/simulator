@@ -1,0 +1,165 @@
+{
+  "description": "Circuit Breakers, Timeouts, Retries, Queues, Cache, degredation",
+  "autoAssign": {
+    "port": true
+  },
+  "services": [
+    {
+      "name": "B",
+      "file": "../config/ab/b.service.json"
+    },
+    {
+      "name": "B - high latency",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "mean": 40
+      }
+    },
+    {
+      "name": "B - low availability",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "failureRate": 0.1
+      }
+    }
+  ],
+  "endpoints": [
+    {
+      "name": "Base Line",
+      "file": "../config/ab/a.service.json"
+    },
+    {
+      "name": "Latent B - Base Line",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - high latency"
+        }
+      ]
+    },
+    {
+      "name": "Error B - Base Line",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - low availability"
+        }
+      ]
+    },
+    {
+      "name": "Timeout",
+      "file": "../config/ab/a.service.json",
+      "timeout": 1000
+    },
+    {
+      "name": "Latent B - Timeout",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - high latency"
+        }
+      ],
+      "timeout": 1000
+    },
+    {
+      "name": "Error B - Timeout",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - low availability"
+        }
+      ],
+      "timeout": 1000
+    },
+    {
+      "name": "Queue Pool",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B",
+          "workers": 5,
+
+          "queue": {
+            "type": "Queue",
+            "maxSize": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Latent B - Queue Pool",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - high latency",
+          "workers": 5,
+
+          "queue": {
+            "type": "Queue",
+            "maxSize": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error B - Queue Pool",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - low availability",
+          "workers": 5,
+
+          "queue": {
+            "type": "Queue",
+            "maxSize": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Priority Queue Pool",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Latent B - Priority Queue Pool",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - high latency",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 3
+          }
+        }
+      ]
+    },
+    {
+      "name": "Error B - Priority Queue Pool",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - low availability",
+          "workers": 5,
+
+          "queue": {
+            "type": "PriorityQueue",
+            "maxSize": 3
+          }
+        }
+      ]
+    }
+  ]
+}

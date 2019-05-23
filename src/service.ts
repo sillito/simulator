@@ -14,13 +14,12 @@
 //   dependencies are called concurrently.
 //
 
-import { DeferredPromise } from "./DeferredPromise";
 import {
   DependencyPool,
   DependencyResponse,
   Dependency
 } from "./DependencyPool";
-import * as querystring from "querystring";
+import * as defaultsDeep from "lodash.defaultsdeep";
 
 const http = require("http");
 const url = require("url");
@@ -30,6 +29,12 @@ const seedrandom = require("seedrandom");
 export type Req = {
   requestId: number;
   value?: number;
+  response?: Res;
+};
+
+export type Res = {
+  statusCode?: number;
+  value?: number[];
 };
 
 export type ServiceConfiguration = {
@@ -41,13 +46,16 @@ export type ServiceConfiguration = {
   timedResponseSettings: {
     mean: number;
     std: number;
+    value: number;
     failureRate: number;
     failureMean: number;
     failureStd: number;
+    failureValue: number;
   };
   response_size: number;
   failure_response_size: number;
   cache_hit_rate: number;
+  cacheHitValue: number;
   dependencies: Dependency[];
   max_tries: number;
   timeout: number;
@@ -87,13 +95,16 @@ function loadConfiguration() {
     timedResponseSettings: {
       mean: 200,
       std: 50,
+      value: 0,
       failureRate: 0,
       failureMean: 100,
-      failureStd: 25
+      failureStd: 25,
+      failureValue: 0
     },
     response_size: 1024,
     failure_response_size: 512,
     cache_hit_rate: 0,
+    cacheHitValue: 0.5,
     dependencies: [],
     max_tries: 1,
     timeout: 200,
@@ -108,7 +119,7 @@ function loadConfiguration() {
   }
   if (args.config) {
     try {
-      specifiedConfig = require(args.config);
+      specifiedConfig = { ...require(args.config) };
     } catch (err) {
       throw new Error(
         `Invalid Configuration File Path (${args.config}) specified for ${
@@ -120,11 +131,9 @@ function loadConfiguration() {
     // unescape. Escaping used just for shell which doesn't like double quotes.
     specifiedConfig = JSON.parse(args.configJSON.replace(/\\"/g, '"'));
   }
-
-  config = {
-    ...defaultConfig,
-    ...specifiedConfig
-  };
+  config = defaultsDeep(specifiedConfig, defaultConfig);
+  //config = merge(defaultConfig, specifiedConfig);
+  console.error(JSON.stringify(config, null, "  "));
 
   config.dependencies.forEach(dep => {
     dependencies[dep.service] = new DependencyPool(
@@ -152,7 +161,10 @@ const server = http.createServer(async (req, res) => {
   const requestId = getRequestId(req);
   const request: Req = {
     requestId,
-    value: Math.random()
+    value: 99,
+    response: {
+      value: []
+    }
   };
 
   req.on("aborted", () => {
@@ -170,7 +182,7 @@ const server = http.createServer(async (req, res) => {
     log(DEBUG, `sampled ms=${waitTime}, actual ms=${elapsedTime}`, requestId);
 
     recordMetrics({
-      requestId,
+      request,
       status: res.statusCode,
       elapsedTime
     });
@@ -185,91 +197,103 @@ const server = http.createServer(async (req, res) => {
 
   if (config.type === "timed") {
     const timedConfig = config.timedResponseSettings;
+    const response = request.response;
     if (weightedCoinToss(timedConfig.failureRate)) {
-      waitTime = parseInt(
-        normalSample(timedConfig.failureMean, timedConfig.failureStd)
-      );
-      setTimeout(respond, waitTime, res, 500);
+      response.statusCode = 500;
+      response.value.push(timedConfig.failureValue);
+
+      waitTime = normalSample(timedConfig.failureMean, timedConfig.failureStd);
+      setTimeout(respond, waitTime, res, request);
     } else {
-      waitTime = parseInt(normalSample(timedConfig.mean, timedConfig.std));
-      setTimeout(respond, waitTime, res, 200);
+      response.statusCode = 200;
+      response.value.push(timedConfig.value);
+
+      waitTime = normalSample(timedConfig.mean, timedConfig.std);
+      setTimeout(respond, waitTime, res, request);
     }
   } else {
-    const services = config.dependencies.map(dep => dep.service);
-
-    let status;
+    let response;
     if (config.type === "serial") {
-      status = await callServicesSerially(request, services);
+      response = await callServicesSerially(request, config.dependencies);
     } else if (config.type === "concurrent") {
-      status = await callServicesConcurrently(request, services);
+      response = await callServicesConcurrently(request, config.dependencies);
     } else {
-      log(FATAL, `Unknown service type ${config.type}`);
+      return log(FATAL, `Unknown service type ${config.type}`);
     }
+    request.response = response;
 
-    if (status) {
-      respond(res, status);
-    }
+    respond(res, request);
   }
 });
 
-export async function callService(request: Req, service: string) {
+export async function callService(
+  request: Req,
+  dependency: Dependency
+): Promise<Res> {
   // Account for cache hit
   var startTime = Date.now();
   if (weightedCoinToss(config.cache_hit_rate)) {
     recordMetrics({
-      requestId: request.requestId,
-      service: service,
+      request,
+      dependency: dependency.name,
       cache: true,
       tries: 0,
       dependencyTime: Date.now() - startTime
     });
-    return 200;
+    return { value: [config.cacheHitValue], statusCode: 200 };
   }
 
   // here is place for circuit breaker
 
   // Queue
   let dependencyResponse: DependencyResponse;
-  const dependency: DependencyPool = dependencies[service];
+  const dep: DependencyPool = dependencies[dependency.service];
   try {
-    dependencyResponse = await dependency.add(request);
+    dependencyResponse = await dep.add(request);
   } catch (err) {
+    console.error("TTTTTTTTTTTTTTTT", err);
     // A rejection can occur while waiting for the dependency
     recordMetrics({
-      requestId: request.requestId,
-      service,
+      request,
+      dependency: dependency.name,
       status: 500,
       tries: 0,
       dependencyTime: Date.now() - startTime,
       fallback: true
     });
 
-    let x = await dependency.fallback(request);
-    return x;
+    return await dep.fallback(request);
   }
 
-  // call the actual service
+  // read the actual service response
   const { response, attempt } = dependencyResponse;
-  let status = response.statusCode;
+
+  request.response.value.push(request.value);
+
+  if (response.statusCode >= 500) {
+    console.error("XXXXXXXXXXXXXXXXX", response, request);
+  }
 
   // Account for fallback, if execution fails.
-  const shouldFallback = config.fallback && status == 500;
+  const shouldFallback = config.fallback && response.statusCode == 500;
 
   if (shouldFallback) {
-    status = await dependency.fallback(request);
+    let fallbackResponse = await dep.fallback(request);
+    // overwrite response, since we use the fallback for status and value provided
+    request.response = fallbackResponse;
   }
 
   // record metrics
   recordMetrics({
-    requestId: request.requestId,
-    service,
-    status,
+    request,
+    dependency: dependency.name,
+    status: response.statusCode,
     tries: attempt,
     dependencyTime: Date.now() - startTime,
     fallback: shouldFallback
   });
 
-  return response.statusCode;
+  return response;
 }
 
 async function attemptRequestToService(
@@ -283,6 +307,7 @@ async function attemptRequestToService(
 
   attempt++;
   if (attempt > config.max_tries) {
+    console.error("WWWWWWWWWW", error);
     return { response: { statusCode: 500 }, attempt: config.max_tries }; // TODO: what should we do when we hit max_tries?
   }
 
@@ -295,17 +320,21 @@ async function attemptRequestToService(
 
   return new Promise((resolve, reject) => {
     let request = http.request(serviceURL, response => {
-      response.on("data", () => {});
+      let body = "";
+      response.on("data", chunk => {
+        body += chunk;
+      });
       response.on("end", () => {
         if (response.statusCode === 500) {
           // retry on error response
           resolve(
             attemptRequestToService(serviceURL, attempt, {
-              message: "500 status code"
+              message: "500 status code - " + body
             })
           );
         } else {
-          resolve({ response, attempt });
+          const parsed = JSON.parse(body);
+          resolve({ response: parsed, attempt });
         }
       });
     });
@@ -330,67 +359,68 @@ async function attemptRequestToService(
 // respond with a status code of 500, without waiting for all service calls.
 //
 
-async function callServicesConcurrently(request: Req, serviceURLs) {
-  let responsesPending = serviceURLs.length; // TODO might be worth logging this value on 500
+async function callServicesConcurrently(
+  request: Req,
+  dependencies: Dependency[]
+): Promise<Res> {
+  let result = { value: [], statusCode: 200 };
+  let responsesPending = dependencies.length; // TODO might be worth logging this value on 500
 
   return new Promise(resolve => {
-    serviceURLs.forEach(async serviceURL => {
-      const status = await callService(request, serviceURL);
+    dependencies.forEach(async dep => {
+      const response = await callService(request, dep);
 
-      // immediately return 500 error, don't allow future services calls to respond
-      if (status === 500) {
-        return resolve(status);
+      // hard dependencies fail the collection of services, returning 0.
+      // TODO: try keeping value to see value of dropped responses after
+      //       they have failed some point down the line.
+      if (response.statusCode === 500 && dep.type == "hard") {
+        console.error("EEEEEEEEEEEE", response);
+        return resolve({ value: [-10], statusCode: 500 });
       }
+      result.value.push(response.value);
 
       // after we have processed all, respond 200
       responsesPending--;
       if (responsesPending === 0) {
         // all service calls are complete
-        return resolve(status);
+        return resolve(result);
       }
     });
   });
 }
 
-export async function callServicesSerially(request: Req, serviceURLs) {
-  var serviceURL = serviceURLs.shift();
+export async function callServicesSerially(
+  request: Req,
+  dependencies: Dependency[]
+): Promise<Res> {
+  let result = { value: [], statusCode: 200 };
+  if (dependencies.length == 0) return result;
 
-  // recurse until out of URLs to process
-  if (!serviceURL) {
-    return 200;
+  for (const dep of dependencies) {
+    const response = await callService(request, dep);
+
+    // hard dependencies fail the collection of services, returning 0.
+    // TODO: try keeping value to see value of dropped responses after
+    //       they have failed some point down the line.
+    if (response.statusCode === 500 && dep.type == "hard") {
+      return { value: [-6], statusCode: 500 };
+    }
+    result.value.push(response.value);
   }
 
-  const status = await callService(request, serviceURL);
-  if (status === 500) {
-    return status;
-  }
-
-  return callServicesSerially(request, serviceURLs);
+  return result;
 }
 
 //
 // This service always responds in one of two ways: 200 or 500
 //
 
-export function respond(res, status) {
-  let body;
-  if (status == 200) {
-    // body = Buffer.alloc(config.response_size);
-    body = "hi";
-  } else if (status == 500) {
-    body = "error"; //Buffer.alloc(config.failure_response_size);
-  } else {
-    body = "error"; //Buffer.alloc(config.failure_response_size);
-    log(
-      ERROR,
-      `Unexpected response status ${status} requested to be set. Sending failure instead.`
-    );
-  }
-
-  res.statusCode = status;
-  res.setHeader("Content-Type", "text/html");
-  res.setHeader("Content-Length", body.length);
-  res.end(body);
+export function respond(res, request: Req) {
+  const responseText = JSON.stringify(request.response);
+  res.statusCode = request.response.statusCode;
+  res.setHeader("Content-Type", "application/json");
+  res.setHeader("Content-Length", responseText.length);
+  res.end(responseText);
 }
 
 //
