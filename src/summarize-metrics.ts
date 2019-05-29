@@ -5,6 +5,7 @@
 //
 // TODO: Really we care about the latency distribution, not just the min, max and mean
 //
+import * as fs from "fs";
 const readline = require("readline").createInterface({
   input: process.stdin,
   output: process.stdout,
@@ -16,7 +17,8 @@ var args = require("minimist")(process.argv.slice(2), {
   default: {
     name: "trial",
     csv: false,
-    header: false
+    header: false,
+    wrkReport: null
   }
 });
 
@@ -113,6 +115,10 @@ readline.on("close", () => {
 });
 
 function generateMetrics() {
+  // strip aborts, caused by closing connections in WRK
+  const report = fs.readFileSync(args.wrkReport, {encoding:"utf8"});
+  const truncateAfter = parseInt(/(\d*) requests in /g.exec(report.toString())[1]);
+
   const service = {
     requests: 0,
     responseStatuses: {
@@ -144,6 +150,12 @@ function generateMetrics() {
   for (var i = 0; i < metrics.length; i++) {
     const metric = metrics[i];
     const lines = metric.lines;
+    if(lines[0].request.requestId > truncateAfter) {
+      continue;
+    }
+
+    // filter aborted requests caused by hangups from wrk
+
 
     lines.forEach(line => {
       if (line.dependency) {

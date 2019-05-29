@@ -187,7 +187,7 @@ async function startServices(allServices, outputFolder) {
     const logStream = fs.createWriteStream(
       `${outputFolder}/${sanitizeServiceName(s.name)}.metrics`,
       {
-        flags: "a"
+        flags: "w"
       }
     );
     const node = spawn("node", [
@@ -249,6 +249,7 @@ async function runExperiment(endpoints, outputFolder) {
         resolve();
       });
     });
+    return sleep(100);
   }
 
   /*return concurrently(commands, {
@@ -262,7 +263,7 @@ async function gatherMetrics(endpoints, outputFolder) {
     (e, index) =>
       `node ./dist/summarize-metrics.js --name ${sanitizeServiceName(
         e.name
-      )} --csv < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
+      )} --csv --wrkReport ${outputFolder}/${sanitizeServiceName(e.name)}.wrk.output < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
   );
   return concurrently(commands, {
     prefix: "none",
