@@ -230,9 +230,9 @@ async function runExperiment(endpoints, outputFolder) {
       "-c",
       "20",
       "-d",
-      "5s",
+      "15s",
       "-R",
-      "50",
+      "100",
       "--timeout",
       "15s",
       "-L",
@@ -262,7 +262,7 @@ async function gatherMetrics(endpoints, outputFolder) {
     (e, index) =>
       `node ./dist/summarize-metrics.js --name ${sanitizeServiceName(
         e.name
-      )} < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
+      )} --csv < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
   );
   return concurrently(commands, {
     prefix: "none",

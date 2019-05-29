@@ -48,7 +48,13 @@ readline.on("line", line => {
 });
 
 readline.on("close", () => {
-  const m = generateMetrics();
+  let m = null;
+  try {
+    m = generateMetrics();
+  } catch (err) {
+    console.error("ERROR IN SUMMARIZE", err);
+    throw err;
+  }
   if (args.csv) {
     if (args.header) {
       console.log(

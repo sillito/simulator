@@ -12,7 +12,8 @@
       "name": "B - high latency",
       "file": "../config/ab/b.service.json",
       "timedResponseSettings": {
-        "mean": 40
+        "mean": 100,
+        "std": 20
       }
     },
     {
@@ -49,7 +50,7 @@
     {
       "name": "Timeout",
       "file": "../config/ab/a.service.json",
-      "timeout": 1000
+      "timeout": 100
     },
     {
       "name": "Latent B - Timeout",
@@ -59,7 +60,7 @@
           "name": "B - high latency"
         }
       ],
-      "timeout": 1000
+      "timeout": 100
     },
     {
       "name": "Error B - Timeout",
@@ -69,7 +70,7 @@
           "name": "B - low availability"
         }
       ],
-      "timeout": 1000
+      "timeout": 100
     },
     {
       "name": "Queue Pool",

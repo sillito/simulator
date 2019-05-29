@@ -21,13 +21,13 @@ import {
 } from "./DependencyPool";
 import * as defaultsDeep from "lodash.defaultsdeep";
 
-const http = require("http");
-const url = require("url");
-const seedrandom = require("seedrandom");
+import * as http from "http";
+import * as url from "url";
+import * as seedrandom from "seedrandom";
 
 // Properties that can be passed along to other services via querystring
 export type Req = {
-  requestId: number;
+  requestId: string;
   value?: number;
   response?: Res;
 };
@@ -146,9 +146,9 @@ function loadConfiguration() {
 }
 
 // return the existing Id or generate an auto incrementing ID
-function getRequestId(request) {
+function getRequestId(request): number {
   const query = url.parse(request.url, true).query;
-  return query.requestId || ++newRequestId;
+  return Number(query.requestId) || ++newRequestId;
 }
 
 const server = http.createServer(async (req, res) => {
@@ -158,7 +158,7 @@ const server = http.createServer(async (req, res) => {
   const startConnections = connectionsCount;
   let waitTime = 0;
 
-  const requestId = getRequestId(req);
+  const requestId: string = "" + getRequestId(req);
   const request: Req = {
     requestId,
     value: 99,
@@ -251,7 +251,7 @@ export async function callService(
   try {
     dependencyResponse = await dep.add(request);
   } catch (err) {
-    console.error("TTTTTTTTTTTTTTTT", err);
+    // console.error("TTTTTTTTTTTTTTTT", err);
     // A rejection can occur while waiting for the dependency
     recordMetrics({
       request,
@@ -346,7 +346,10 @@ async function attemptRequestToService(
     });
 
     // setting a timeout also implictly destroys socket
-    request.setTimeout(config.timeout);
+    request.setTimeout(config.timeout, function() {
+      console.error("XXXXXXXXXXXXXX timeout reached");
+      request.abort();
+    });
 
     request.end();
   });
