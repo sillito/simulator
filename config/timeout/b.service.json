@@ -1,10 +1,11 @@
 {
-  "name": "bork",
+  "name": "B - Baseline",
   "type": "timed",
   "port": 3000,
   "timedResponseSettings": {
     "failureRate": 0,
-    "mean": 20,
+    "failureValue": -3,
+    "mean": 10,
     "std": 5
   }
 }

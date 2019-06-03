@@ -6,7 +6,19 @@
   "services": [
     {
       "name": "B",
-      "file": "../config/ab/b.service.json"
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "mean": 10,
+        "std": 5
+      }
+    },
+    {
+      "name": "B - latency 40-10",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "mean": 40,
+        "std": 10
+      }
     },
     {
       "name": "B - latency 50-10",
@@ -22,22 +34,6 @@
       "timedResponseSettings": {
         "mean": 80,
         "std": 10
-      }
-    },
-    {
-      "name": "B - latency 40-10",
-      "file": "../config/ab/b.service.json",
-      "timedResponseSettings": {
-        "mean": 40,
-        "std": 10
-      }
-    },
-
-    {
-      "name": "B - low availability",
-      "file": "../config/ab/b.service.json",
-      "timedResponseSettings": {
-        "failureRate": 0.1
       }
     }
   ],
