@@ -2,7 +2,7 @@ import { DeferredPromise } from "./DeferredPromise";
 import { Queue } from "./queues/Queue";
 import { BoundedQueue } from "./queues/BoundedQueue";
 import { PriorityQueue } from "./queues/PriorityQueue";
-import { Req } from "./service";
+import { Req, Res } from "./service";
 import * as path from "path";
 
 // The Object type that is added to queues
@@ -22,15 +22,14 @@ export type DependencyRequestFunction = (
 ) => Promise<DependencyResponse>;
 
 export type DependencyResponse = {
-  response: {
-    statusCode: number;
-  };
+  response: Res;
   attempt: number;
 };
 
 export type Dependency = {
   name: string;
   service: string;
+  type: "hard" | "soft";
 
   workers: number;
   queue: QueueConfig;
@@ -116,7 +115,7 @@ export class DependencyPool {
       this.requestFunction
     );
 
-    return async function(service, request): Promise<number> {
+    return async function(service, request): Promise<Res> {
       // here is place for circuit breaker
 
       // Queue
@@ -136,10 +135,10 @@ export class DependencyPool {
       const shouldFallback = fallbackDependency.fallback && status == 500;
 
       if (shouldFallback) {
-        status = await fallbackPool.fallback(request);
+        return await fallbackPool.fallback(request);
       }
 
-      return response.statusCode;
+      return response;
     };
   }
   private parseFallbackFunction(fallback): Function {
@@ -163,11 +162,11 @@ export class DependencyPool {
     return target[func];
   }
 
-  async fallback(request: Req): Promise<number> {
+  async fallback(request: Req): Promise<Res> {
     if (this.fallbackFunction) {
       return this.fallbackFunction(this, request);
     }
-    return 500;
+    return { value: [0], statusCode: 500 };
   }
 
   add(request: Req): Promise<DependencyResponse> {
