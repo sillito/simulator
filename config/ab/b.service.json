@@ -6,6 +6,8 @@
     "failureRate": 0,
     "failureValue": -3,
     "mean": 10,
-    "std": 5
+    "std": 5,
+    "failureMean": 10,
+    "failureStd": 5
   }
 }

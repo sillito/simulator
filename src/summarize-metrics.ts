@@ -116,9 +116,11 @@ readline.on("close", () => {
 
 function generateMetrics() {
   // strip aborts, caused by closing connections in WRK
-  const report = fs.readFileSync(args.wrkReport, {encoding:"utf8"});
-  const truncateAfter = parseInt(/(\d*) requests in /g.exec(report.toString())[1]);
-
+  const report = fs.readFileSync(args.wrkReport, { encoding: "utf8" });
+  const truncateAfter = parseInt(
+    /(\d*) requests in /g.exec(report.toString())[1]
+  );
+  // console.error("TRUNCATE AFTER", truncateAfter);
   const service = {
     requests: 0,
     responseStatuses: {
@@ -150,12 +152,12 @@ function generateMetrics() {
   for (var i = 0; i < metrics.length; i++) {
     const metric = metrics[i];
     const lines = metric.lines;
-    if(lines[0].request.requestId > truncateAfter) {
+    if (!lines.find(line => line.elapsedTime)) {
+      //console.error("REMOVED", lines, "since no elapsedTime");
       continue;
     }
 
     // filter aborted requests caused by hangups from wrk
-
 
     lines.forEach(line => {
       if (line.dependency) {

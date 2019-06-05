@@ -380,7 +380,7 @@ async function callServicesConcurrently(
         console.error("EEEEEEEEEEEE", response);
         return resolve({ value: [-10], statusCode: 500 });
       }
-      result.value.push(response.value);
+      result.value.push(...response.value);
 
       // after we have processed all, respond 200
       responsesPending--;

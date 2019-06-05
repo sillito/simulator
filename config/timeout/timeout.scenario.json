@@ -35,26 +35,44 @@
         "mean": 80,
         "std": 10
       }
+    },
+    {
+      "name": "B - error 10",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "failureRate": 0.1
+      }
+    },
+    {
+      "name": "B - error 20",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "failureRate": 0.2
+      }
+    },
+    {
+      "name": "B - error 30",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "failureRate": 0.3
+      }
+    },
+    {
+      "name": "B - error 40",
+      "file": "../config/ab/b.service.json",
+      "timedResponseSettings": {
+        "failureRate": 0.4
+      }
     }
   ],
   "endpoints": [
     {
-      "name": "Timeout",
+      "name": "Baseline",
       "file": "../config/ab/a.service.json",
       "timeout": 50
     },
     {
-      "name": "50 B - Timeout",
-      "file": "../config/ab/a.service.json",
-      "dependencies": [
-        {
-          "name": "B - latency 50-10"
-        }
-      ],
-      "timeout": 50
-    },
-    {
-      "name": "40 B - Timeout",
+      "name": "Latency 40 10",
       "file": "../config/ab/a.service.json",
       "dependencies": [
         {
@@ -64,11 +82,61 @@
       "timeout": 50
     },
     {
-      "name": "80 B - Timeout",
+      "name": "Latency 50 10",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - latency 50-10"
+        }
+      ],
+      "timeout": 50
+    },
+    {
+      "name": "Latency 80 10",
       "file": "../config/ab/a.service.json",
       "dependencies": [
         {
           "name": "B - latency 80-10"
+        }
+      ],
+      "timeout": 50
+    },
+    {
+      "name": "Error 10",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - error 10"
+        }
+      ],
+      "timeout": 50
+    },
+    {
+      "name": "Error 20",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - error 20"
+        }
+      ],
+      "timeout": 50
+    },
+    {
+      "name": "Error 30",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - error 30"
+        }
+      ],
+      "timeout": 50
+    },
+    {
+      "name": "Error 40",
+      "file": "../config/ab/a.service.json",
+      "dependencies": [
+        {
+          "name": "B - error 40"
         }
       ],
       "timeout": 50

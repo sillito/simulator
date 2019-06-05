@@ -249,7 +249,6 @@ async function runExperiment(endpoints, outputFolder) {
         resolve();
       });
     });
-    return sleep(100);
   }
 
   /*return concurrently(commands, {
@@ -263,7 +262,9 @@ async function gatherMetrics(endpoints, outputFolder) {
     (e, index) =>
       `node ./dist/summarize-metrics.js --name ${sanitizeServiceName(
         e.name
-      )} --csv --wrkReport ${outputFolder}/${sanitizeServiceName(e.name)}.wrk.output < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
+      )} --csv --wrkReport ${outputFolder}/${sanitizeServiceName(
+        e.name
+      )}.wrk.output < ${outputFolder}/${sanitizeServiceName(e.name)}.metrics`
   );
   return concurrently(commands, {
     prefix: "none",
@@ -276,7 +277,7 @@ async function finish() {
   console.log(`*** Killing ${childProcesses.length} Child Processes ***`);
   childProcesses.forEach(c => {
     let a = c.kill("SIGTERM");
-    console.log(" --> ", a);
+    // console.log(" --> ", a);
   });
 }
 
