@@ -170,6 +170,13 @@ const server = http.createServer(async (req, res) => {
   req.on("aborted", () => {
     const elapsedTime = Date.now() - startTime;
     log(DEBUG, `Request aborted ${elapsedTime}ms (${waitTime}ms)`, requestId);
+    // TODO: doesn't get recorded
+    recordMetrics({
+      request,
+      status: res.statusCode,
+      elapsedTime,
+      aborted: true
+    });
   });
 
   res.on("finish", () => {
